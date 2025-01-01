@@ -110,13 +110,17 @@ def diffusion_sample(
     )
 
     def _step(x, t, i, noise_injection=None):
+        b = x.shape[0]
         latent_model_input = torch.cat([x] * 2)
         latent_model_input = scheduler.scale_model_input(latent_model_input, timestep=t)
 
         # predict the noise residual
+        encoder_hidden_states = text_embeddings
+        if b > 1:
+            encoder_hidden_states = encoder_hidden_states.repeat_interleave(b, dim=0)
         with torch.no_grad():
             noise_pred = unet(
-                latent_model_input, t, encoder_hidden_states=text_embeddings
+                latent_model_input, t, encoder_hidden_states=encoder_hidden_states
             ).sample
 
         # perform guidance
@@ -136,8 +140,8 @@ def diffusion_sample(
     def sample(noise_injection=None):
         _latents = latents * scheduler.init_noise_sigma + (noise_injection if noise_injection is not None else 0.0)
         scheduler.set_timesteps(num_inference_steps)
-        # for i,t in tqdm(enumerate(scheduler.timesteps)):
-        for i,t in enumerate(scheduler.timesteps):
+        for i,t in tqdm(enumerate(scheduler.timesteps)):
+        # for i,t in enumerate(scheduler.timesteps):
             _latents = _step(_latents, t, i + 1, noise_injection)
         return decode_latents(_latents, vae)
 

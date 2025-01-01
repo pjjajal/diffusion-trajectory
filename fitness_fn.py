@@ -35,4 +35,5 @@ def brightness(img: torch.Tensor) -> float:
     pil_imgs = pt_to_pil(img)
     hsv_imgs = [pil_img.convert("HSV") for pil_img in pil_imgs]
     vs = [np.array(hsv_img.split()[-1]) for hsv_img in hsv_imgs]
-    return np.mean(np.array(vs)) / 255.0
+    v = torch.tensor(np.mean(np.array(vs)) / 255.0).unsqueeze(0)
+    return v
