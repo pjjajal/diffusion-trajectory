@@ -1,0 +1,14 @@
+torchvision
+torch
+torchaudio
+sentencepiece
+transformers
+numpy
+pandas
+scipy
+accelerate
+diffusers
+evotorch
+ipykernel
+ipywidgets
+treescope
