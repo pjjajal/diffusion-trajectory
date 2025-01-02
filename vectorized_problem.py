@@ -26,12 +26,13 @@ class VectorizedProblem(Problem):
         subbatch_size=None,
         store_solution_stats=None,
         vectorized=None,
-        splits=1
+        splits=1,
+        initialization=None
     ):
         super().__init__(
             objective_sense,
             objective_func,
-            initial_bounds=initial_bounds,
+            initial_bounds=initial_bounds if initialization is None else None,
             bounds=bounds,
             solution_length=solution_length,
             dtype=dtype,
@@ -47,8 +48,21 @@ class VectorizedProblem(Problem):
             store_solution_stats=store_solution_stats,
             vectorized=vectorized,
         )
-
+        if initialization is not None:
+            assert len(initialization) == solution_length, "initialization must have the same length as solution_length"
+            self.initialization = initialization
         self.splits = splits
+
+    def _fill(self, values):
+        if self.initialization is not None:
+            for i in range(len(self.initialization)):
+                if self.initialization[i] is tuple:
+                    values[:, i].uniform(*self.initialization[i])
+                else:
+                    values[:, i] = self.initialization[i]
+            print(values)
+            return values
+        return super()._fill(values)
 
     def _evaluate_batch(self, solutions: SolutionBatch) -> None:
         self._evaluate_batch_override_split_k(solutions)
@@ -72,6 +86,6 @@ class VectorizedProblem(Problem):
             #   print(f"split_result_tensor {split_result_tensor}")
             split_all_result_list.append(split_result_tensor)
         split_all_result_tensor = torch.cat(split_all_result_list, dim=0)
-    
+
         print(f"split_all_result_tensor.shape {split_all_result_tensor.shape}")
         solutions.set_evals(split_all_result_tensor)

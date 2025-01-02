@@ -76,7 +76,6 @@ def sample_latents(
     return latents
 
 
-
 # this is written in this way to expose a callable function which can be used with a black-box optimization algo.
 # it should be noted that sampling will be determinstic because the latents are fixed for the callable function.
 # to get a different sample, the latents should be re-sampled, i.e., initialize the generator differently.
@@ -138,10 +137,12 @@ def diffusion_sample(
         return x
 
     def sample(noise_injection=None):
-        _latents = latents * scheduler.init_noise_sigma + (noise_injection if noise_injection is not None else 0.0)
+        _latents = latents * scheduler.init_noise_sigma + (
+            noise_injection if noise_injection is not None else 0.0
+        )
         scheduler.set_timesteps(num_inference_steps)
-        for i,t in tqdm(enumerate(scheduler.timesteps)):
-        # for i,t in enumerate(scheduler.timesteps):
+        for i, t in tqdm(enumerate(scheduler.timesteps)):
+            # for i,t in enumerate(scheduler.timesteps):
             _latents = _step(_latents, t, i + 1, noise_injection)
         return decode_latents(_latents, vae)
 
