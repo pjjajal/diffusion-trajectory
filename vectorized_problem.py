@@ -48,9 +48,9 @@ class VectorizedProblem(Problem):
             store_solution_stats=store_solution_stats,
             vectorized=vectorized,
         )
+        self.initialization = initialization
         if initialization is not None:
             assert len(initialization) == solution_length, "initialization must have the same length as solution_length"
-            self.initialization = initialization
         self.splits = splits
 
     def _fill(self, values):
