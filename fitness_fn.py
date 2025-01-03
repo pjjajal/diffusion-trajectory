@@ -2,8 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import os
+from PIL.Image import Image
 from diffusers.utils import pt_to_pil
-from typing import Callable, Literal
+from typing import Callable, Literal, Union
 from transformers import CLIPProcessor, CLIPModel, AutoModel, AutoProcessor
 
 from typing import Callable
@@ -16,7 +17,6 @@ def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]):
     return fitness
 
 
-@torch.no_grad()
 def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device="cpu") -> Callable:
     processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
     clip_model = CLIPModel.from_pretrained(clip_model_name, cache_dir=cache_dir)
@@ -73,7 +73,6 @@ def aesthetic_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Ca
             x = self.layers(x)
             return x
 
-
     ### Load CLIP model
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336", cache_dir=cache_dir)
     clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336", cache_dir=cache_dir)
@@ -83,13 +82,12 @@ def aesthetic_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Ca
     aesthetic_mlp = AestheticMLP(768)
     aesthetic_mlp.load_state_dict( torch.load( os.path.join(cache_dir,"sac+logos+ava1-l14-linearMSE.pth") ) )
     aesthetic_mlp.eval().to(device)
-
-    @torch.no_grad()
-    def fitness_fn(img: torch.Tensor) -> float:
-        pil_imgs = pt_to_pil(img)
+    def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
+        if isinstance(img, torch.Tensor):
+            img = pt_to_pil(img)
 
         inputs = processor(
-            images=pil_imgs,
+            images=img,
             return_tensors="pt",
             padding=True,
         ).to(device=device)
@@ -104,10 +102,35 @@ def aesthetic_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Ca
 
 ### See https://huggingface.co/yuvalkirstain/PickScore_v1
 def pickscore_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Callable:
+    ### Load processor LAION-2B (CLIP-based), and PickScore classifier
+    processor = AutoProcessor.from_pretrained("laion/CLIP-ViT-H-14-laion2B-s32B-b79K", cache_dir=cache_dir)
+    pick_model = AutoModel.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)
+    pick_model.eval().to(device)
 
-    @torch.no_grad()
-    def fitness_fn(img: torch.Tensor) -> float:
-        score = []
+    def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
+        if isinstance(img, torch.Tensor):
+            img = pt_to_pil(img)
+
+        image_inputs = processor(
+            images=img,
+            return_tensors="pt",
+            padding=True,
+        ).to(device=device)
+        
+        text_inputs = processor(
+            text=prompt,
+            return_tensors="pt",
+            padding=True,
+        ).to(device=device)
+
+        image_embeddings = pick_model.get_image_features(**image_inputs)
+        image_embeddings = image_embeddings / torch.norm(image_embeddings, dim=-1, keepdim=True)
+    
+        text_embeddings = pick_model.get_text_features(**text_inputs)
+        text_embeddings = text_embeddings / torch.norm(text_embeddings, dim=-1, keepdim=True)
+    
+        score = pick_model.logit_scale.exp() * (text_embeddings @ image_embeddings.T)[0]
+        
         return score
     
     return fitness_fn
@@ -156,10 +179,12 @@ class Novelty:
         self.model = self.model if self.is_dino else self.model.vision_model  # for CLIP
         self.history = None
 
+
     def _compute_score(self, x):
         dists = (x - self.history).norm(dim=-1)
         top_k, _ = torch.topk(dists, k=self.top_k, largest=True)
         return top_k.mean()
+
 
     @torch.no_grad()
     def __call__(self, img: torch.Tensor) -> torch.Tensor:
@@ -179,3 +204,4 @@ class Novelty:
         score = self._compute_score(features)
         self.history = torch.cat([self.history, features])
         return score
+    
