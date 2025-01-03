@@ -13,14 +13,16 @@ import pytorch_lightning as lightning
 
 
 def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]):
-    fitness = lambda img: sum([w * fn(img) for w, fn in zip(weights, fitness_fns)])
+    fitness = lambda img: sum([w * fn(img).cpu() for w, fn in zip(weights, fitness_fns)])
     return fitness
 
 
-def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device="cpu") -> Callable:
+@torch.no_grad()
+def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0) -> Callable:
     processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
-    clip_model = CLIPModel.from_pretrained(clip_model_name, cache_dir=cache_dir)
-    clip_model.eval().to(device=device)
+    clip_model = CLIPModel.from_pretrained(clip_model_name, cache_dir=cache_dir).to(
+        device=device
+    )
 
     def fitness_fn(img: torch.Tensor) -> float:
         pil_imgs = pt_to_pil(img)
@@ -28,7 +30,7 @@ def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device="cpu") -> Ca
         # _prompt = [_prompt[0],]
         inputs = processor(
             text=_prompt, images=pil_imgs, return_tensors="pt", padding=True
-        ).to(device=device)
+        ).to(device=0)
         outputs = clip_model(**inputs)
         score = outputs[0][0]
         # print(outputs.logits_per_image)
@@ -179,12 +181,10 @@ class Novelty:
         self.model = self.model if self.is_dino else self.model.vision_model  # for CLIP
         self.history = None
 
-
     def _compute_score(self, x):
         dists = (x - self.history).norm(dim=-1)
         top_k, _ = torch.topk(dists, k=self.top_k, largest=True)
         return top_k.mean()
-
 
     @torch.no_grad()
     def __call__(self, img: torch.Tensor) -> torch.Tensor:
@@ -204,4 +204,3 @@ class Novelty:
         score = self._compute_score(features)
         self.history = torch.cat([self.history, features])
         return score
-    
