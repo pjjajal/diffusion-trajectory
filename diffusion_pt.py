@@ -94,10 +94,12 @@ def diffusion_sample(
     vae = pipeline.vae
     unet = pipeline.unet
     scheduler = pipeline.scheduler
+    dtype = pipeline.dtype
+    print(f"using dtype: {dtype}")
 
     if len(prompt) != batch_size:
         prompt = prompt * batch_size
-    text_embeddings = embed_text(tokenizer, text_encoder, prompt)
+    text_embeddings = embed_text(tokenizer, text_encoder, prompt).to(dtype=dtype)
     latents = generate_latent(
         vae.config,
         unet.config,
@@ -106,7 +108,7 @@ def diffusion_sample(
         height=height,
         width=width,
         batch_size=batch_size,
-    )
+    ).to(dtype=dtype)
 
     def _step(x, t, i, noise_injection=None):
         b = x.shape[0]
@@ -143,10 +145,10 @@ def diffusion_sample(
         scheduler.set_timesteps(num_inference_steps)
         for i, t in tqdm(enumerate(scheduler.timesteps)):
             # for i,t in enumerate(scheduler.timesteps):
-            _latents = _step(_latents, t, i + 1, noise_injection)
+            _latents = _step(_latents, t, i + 1, None)
         return decode_latents(_latents, vae)
 
-    return sample, latents, num_inference_steps + scheduler.config.steps_offset + 1
+    return sample, latents, num_inference_steps + scheduler.config.steps_offset + 1, dtype
 
 
 def decode_latents(latents, vae):
