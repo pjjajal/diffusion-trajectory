@@ -1,21 +1,26 @@
 import numpy as np
 import torch
+import torch.nn as nn
+import os
 from diffusers.utils import pt_to_pil
-from PIL import Image
 from typing import Callable, Literal
-from transformers import pipeline, CLIPProcessor, CLIPModel, AutoModel, AutoProcessor
+from transformers import CLIPProcessor, CLIPModel, AutoModel, AutoProcessor
+
+from typing import Callable
+from transformers import CLIPProcessor, CLIPModel
+import pytorch_lightning as lightning
 
 
 def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]):
     fitness = lambda img: sum([w * fn(img) for w, fn in zip(weights, fitness_fns)])
     return fitness
 
+
 @torch.no_grad()
-def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0) -> Callable:
+def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device="cpu") -> Callable:
     processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
-    clip_model = CLIPModel.from_pretrained(clip_model_name, cache_dir=cache_dir).to(
-        device=device
-    )
+    clip_model = CLIPModel.from_pretrained(clip_model_name, cache_dir=cache_dir)
+    clip_model.eval().to(device=device)
 
     def fitness_fn(img: torch.Tensor) -> float:
         pil_imgs = pt_to_pil(img)
@@ -23,7 +28,7 @@ def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0) -> Callab
         # _prompt = [_prompt[0],]
         inputs = processor(
             text=_prompt, images=pil_imgs, return_tensors="pt", padding=True
-        ).to(device=0)
+        ).to(device=device)
         outputs = clip_model(**inputs)
         score = outputs[0][0]
         # print(outputs.logits_per_image)
@@ -38,7 +43,77 @@ def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0) -> Callab
     return fitness_fn
 
 
-def brightness(img: torch.Tensor) -> torch.Tensor:
+### Adapted from https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/simple_inference.py
+### Need to manually download https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/6934dd81792f086e613a121dbce43082cb8be85e/sac%2Blogos%2Bava1-l14-linearMSE.pth to cache_dir/
+### Adapted for use with Huggingface-hosted CLIP instead of original CLIP package (import clip)
+def aesthetic_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Callable:
+    class AestheticMLP(lightning.LightningModule):
+        def __init__(self, input_size, xcol='emb', ycol='avg_rating'):
+            super().__init__()
+            self.input_size = input_size
+            self.xcol = xcol
+            self.ycol = ycol
+            self.layers = nn.Sequential(
+                nn.Linear(self.input_size, 1024),
+                nn.Dropout(0.2),
+                nn.Linear(1024, 128),
+                nn.Dropout(0.2),
+                nn.Linear(128, 64),
+                nn.Dropout(0.1),
+                nn.Linear(64, 16),
+                nn.Linear(16, 1)
+            )
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            ### Normalize CLIP embedding
+            l2 = torch.norm(x, p=2, dim=-1, keepdim=True)
+            l2[l2 == 0] = 1
+            x = x / l2
+            ### Apply MLP, return score
+            x = self.layers(x)
+            return x
+
+
+    ### Load CLIP model
+    processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336", cache_dir=cache_dir)
+    clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336", cache_dir=cache_dir)
+    clip_model.eval().to(device)
+
+    ### Load linear classifier
+    aesthetic_mlp = AestheticMLP(768)
+    aesthetic_mlp.load_state_dict( torch.load( os.path.join(cache_dir,"sac+logos+ava1-l14-linearMSE.pth") ) )
+    aesthetic_mlp.eval().to(device)
+
+    @torch.no_grad()
+    def fitness_fn(img: torch.Tensor) -> float:
+        pil_imgs = pt_to_pil(img)
+
+        inputs = processor(
+            images=pil_imgs,
+            return_tensors="pt",
+            padding=True,
+        ).to(device=device)
+
+        clip_image_embeddings = clip_model.get_image_features(**inputs)
+        aesthetic_score = aesthetic_mlp(clip_image_embeddings)
+
+        return aesthetic_score    
+    
+    return fitness_fn
+
+
+### See https://huggingface.co/yuvalkirstain/PickScore_v1
+def pickscore_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Callable:
+
+    @torch.no_grad()
+    def fitness_fn(img: torch.Tensor) -> float:
+        score = []
+        return score
+    
+    return fitness_fn
+
+
+def brightness(img: torch.Tensor) -> float:
     pil_imgs = pt_to_pil(img)
     hsv_imgs = [pil_img.convert("HSV") for pil_img in pil_imgs]
     vs = [np.array(hsv_img.split()[-1]) for hsv_img in hsv_imgs]
