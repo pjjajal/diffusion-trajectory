@@ -11,7 +11,7 @@ from typing import Callable
 from transformers import CLIPProcessor, CLIPModel
 import pytorch_lightning as lightning
 
-
+@torch.no_grad()
 def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]):
     fitness = lambda img: sum([w * fn(img).cpu() for w, fn in zip(weights, fitness_fns)])
     return fitness
@@ -48,7 +48,7 @@ def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0) -> Callab
 ### Adapted from https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/simple_inference.py
 ### Need to manually download https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/6934dd81792f086e613a121dbce43082cb8be85e/sac%2Blogos%2Bava1-l14-linearMSE.pth to cache_dir/
 ### Adapted for use with Huggingface-hosted CLIP instead of original CLIP package (import clip)
-def aesthetic_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Callable:
+def aesthetic_fitness_fn(cache_dir:str = None, device: str = "cpu", dtype = torch.float32) -> Callable:
     class AestheticMLP(lightning.LightningModule):
         def __init__(self, input_size, xcol='emb', ycol='avg_rating'):
             super().__init__()
@@ -78,12 +78,12 @@ def aesthetic_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Ca
     ### Load CLIP model
     processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336", cache_dir=cache_dir)
     clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336", cache_dir=cache_dir)
-    clip_model.eval().to(device)
+    clip_model.eval().to(device=device)
 
     ### Load linear classifier
     aesthetic_mlp = AestheticMLP(768)
     aesthetic_mlp.load_state_dict( torch.load( os.path.join(cache_dir,"sac+logos+ava1-l14-linearMSE.pth") ) )
-    aesthetic_mlp.eval().to(device)
+    aesthetic_mlp.eval().to(device=device)
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         if isinstance(img, torch.Tensor):
             img = pt_to_pil(img)
@@ -103,11 +103,11 @@ def aesthetic_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Ca
 
 
 ### See https://huggingface.co/yuvalkirstain/PickScore_v1
-def pickscore_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu") -> Callable:
+def pickscore_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu", dtype = torch.float32) -> Callable:
     ### Load processor LAION-2B (CLIP-based), and PickScore classifier
     processor = AutoProcessor.from_pretrained("laion/CLIP-ViT-H-14-laion2B-s32B-b79K", cache_dir=cache_dir)
     pick_model = AutoModel.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)
-    pick_model.eval().to(device)
+    pick_model.eval().to(device=device)
 
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         if isinstance(img, torch.Tensor):
