@@ -11,9 +11,12 @@ from typing import Callable
 from transformers import CLIPProcessor, CLIPModel
 import pytorch_lightning as lightning
 
+
 @torch.no_grad()
 def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]):
-    fitness = lambda img: sum([w * fn(img).cpu() for w, fn in zip(weights, fitness_fns)])
+    fitness = lambda img: sum(
+        [w * fn(img).cpu() for w, fn in zip(weights, fitness_fns)]
+    )
     return fitness
 
 
@@ -48,9 +51,11 @@ def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0) -> Callab
 ### Adapted from https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/simple_inference.py
 ### Need to manually download https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/6934dd81792f086e613a121dbce43082cb8be85e/sac%2Blogos%2Bava1-l14-linearMSE.pth to cache_dir/
 ### Adapted for use with Huggingface-hosted CLIP instead of original CLIP package (import clip)
-def aesthetic_fitness_fn(cache_dir:str = None, device: str = "cpu", dtype = torch.float32) -> Callable:
+def aesthetic_fitness_fn(
+    cache_dir: str = None, device: str = "cpu", dtype=torch.float32
+) -> Callable:
     class AestheticMLP(lightning.LightningModule):
-        def __init__(self, input_size, xcol='emb', ycol='avg_rating'):
+        def __init__(self, input_size, xcol="emb", ycol="avg_rating"):
             super().__init__()
             self.input_size = input_size
             self.xcol = xcol
@@ -63,7 +68,7 @@ def aesthetic_fitness_fn(cache_dir:str = None, device: str = "cpu", dtype = torc
                 nn.Linear(128, 64),
                 nn.Dropout(0.1),
                 nn.Linear(64, 16),
-                nn.Linear(16, 1)
+                nn.Linear(16, 1),
             )
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -76,14 +81,21 @@ def aesthetic_fitness_fn(cache_dir:str = None, device: str = "cpu", dtype = torc
             return x
 
     ### Load CLIP model
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14-336", cache_dir=cache_dir)
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14-336", cache_dir=cache_dir)
+    processor = CLIPProcessor.from_pretrained(
+        "openai/clip-vit-large-patch14-336", cache_dir=cache_dir
+    )
+    clip_model = CLIPModel.from_pretrained(
+        "openai/clip-vit-large-patch14-336", cache_dir=cache_dir
+    )
     clip_model.eval().to(device=device)
 
     ### Load linear classifier
     aesthetic_mlp = AestheticMLP(768)
-    aesthetic_mlp.load_state_dict( torch.load( os.path.join(cache_dir,"sac+logos+ava1-l14-linearMSE.pth") ) )
+    aesthetic_mlp.load_state_dict(
+        torch.load(os.path.join(cache_dir, "sac+logos+ava1-l14-linearMSE.pth"))
+    )
     aesthetic_mlp.eval().to(device=device)
+
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         if isinstance(img, torch.Tensor):
             img = pt_to_pil(img)
@@ -97,16 +109,22 @@ def aesthetic_fitness_fn(cache_dir:str = None, device: str = "cpu", dtype = torc
         clip_image_embeddings = clip_model.get_image_features(**inputs)
         aesthetic_score = aesthetic_mlp(clip_image_embeddings)
 
-        return aesthetic_score    
-    
+        return aesthetic_score
+
     return fitness_fn
 
 
 ### See https://huggingface.co/yuvalkirstain/PickScore_v1
-def pickscore_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu", dtype = torch.float32) -> Callable:
+def pickscore_fitness_fn(
+    prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
+) -> Callable:
     ### Load processor LAION-2B (CLIP-based), and PickScore classifier
-    processor = AutoProcessor.from_pretrained("laion/CLIP-ViT-H-14-laion2B-s32B-b79K", cache_dir=cache_dir)
-    pick_model = AutoModel.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)
+    processor = AutoProcessor.from_pretrained(
+        "laion/CLIP-ViT-H-14-laion2B-s32B-b79K", cache_dir=cache_dir
+    )
+    pick_model = AutoModel.from_pretrained(
+        "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
+    )
     pick_model.eval().to(device=device)
 
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
@@ -118,7 +136,7 @@ def pickscore_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu", dtype
             return_tensors="pt",
             padding=True,
         ).to(device=device)
-        
+
         text_inputs = processor(
             text=prompt,
             return_tensors="pt",
@@ -126,15 +144,19 @@ def pickscore_fitness_fn(prompt: str, cache_dir=None, device: str = "cpu", dtype
         ).to(device=device)
 
         image_embeddings = pick_model.get_image_features(**image_inputs)
-        image_embeddings = image_embeddings / torch.norm(image_embeddings, dim=-1, keepdim=True)
-    
+        image_embeddings = image_embeddings / torch.norm(
+            image_embeddings, dim=-1, keepdim=True
+        )
+
         text_embeddings = pick_model.get_text_features(**text_inputs)
-        text_embeddings = text_embeddings / torch.norm(text_embeddings, dim=-1, keepdim=True)
-    
+        text_embeddings = text_embeddings / torch.norm(
+            text_embeddings, dim=-1, keepdim=True
+        )
+
         score = pick_model.logit_scale.exp() * (text_embeddings @ image_embeddings.T)[0]
-        
+
         return score
-    
+
     return fitness_fn
 
 
@@ -160,11 +182,15 @@ class Novelty:
         "dino_small": ("facebook/dinov2-small", True),
         "dino_base": ("facebook/dinov2-base", True),
         "dino_large": ("facebook/dinov2-large", True),
+        "clip-base": ("openai/clip-vit-base-patch16", False),
+        "clip-large": ("openai/clip-vit-large-patch14", False),
     }
 
     def __init__(
         self,
-        model_name: Literal["dino_small", "dino_base", "dino_large"],
+        model_name: Literal[
+            "dino_small", "dino_base", "dino_large", "clip-base", "clip-large"
+        ],
         top_k=5,
         cache_dir=None,
         device=0,
