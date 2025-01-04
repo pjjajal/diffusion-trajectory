@@ -253,7 +253,7 @@ class DiffusionSample:
             )
         )
         return (
-            centers, # when inject_multiple is False, centers is the latent tensor, otherwise it is the latent + model_preds (post_guidance) tensor.
+            centers,  # when inject_multiple is False, centers is the latent tensor, otherwise it is the latent + model_preds (post_guidance) tensor.
             self.num_inference_steps + self.scheduler.config.steps_offset + 1,
             self.dtype,
         )

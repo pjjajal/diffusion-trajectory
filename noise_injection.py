@@ -22,7 +22,7 @@ def rotational_transform(
         else torch.zeros((b, c, h, w)).to(dtype=dtype, device=device)
     )
 
-    def _fitness(x):
+    def _inner_fn(x):
         x = x.reshape(-1, c + c**2)
         # slice out the mean and covariance matrix
         mean = x[:, :c]
@@ -37,9 +37,13 @@ def rotational_transform(
         x = einsum(centroid, rot, "b c h w, p c1 c -> p c1 h w")
         x = x + mean_scale * mean - centroid
         samples = sample_fn(x)
+        return samples
+
+    def _fitness(x):
+        samples = _inner_fn(x)
         return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
 
-    return _fitness, centroid, solution_length
+    return _fitness, _inner_fn, centroid, solution_length
 
 
 def rotational_transform_inject_multiple(
@@ -61,23 +65,32 @@ def rotational_transform_inject_multiple(
         if center is not None
         else torch.zeros((b, injection_steps, c, h, w)).to(dtype=dtype, device=device)
     )
-    def _fitness(x):
+
+    def _inner_fn(x):
         x = x.reshape(-1, injection_steps, c + c**2)
         # slice out the mean and covariance matrix
         mean = x[:, :, :c]
         cov = x[:, :, c:].reshape(-1, injection_steps, c, c)
         # QR decomposition to get the rotation matrix.
-        rot, scaling = torch.linalg.qr(cov) # [b, injection_steps, c, c]
+        rot, scaling = torch.linalg.qr(cov)  # [b, injection_steps, c, c]
         # unsqueeze so that we can broadcast the mean and rotation matrix to the correct shape.
-        mean = mean.to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1) # [b, injection_steps, c, 1, 1]
-        rot = rot.to(device, dtype=dtype) # [b, injection_steps, c, c]
+        mean = (
+            mean.to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+        )  # [b, injection_steps, c, 1, 1]
+        rot = rot.to(device, dtype=dtype)  # [b, injection_steps, c, c]
 
         # rotate, translate and find the difference between the original and the rotated + translated version.
         x = einsum(centroid, rot, "b t c h w, p t c1 c -> p t c1 h w")
         x = x + mean_scale * mean - centroid
         samples = sample_fn(x)
+        return samples
+
+    def _fitness(x):
+        samples = _inner_fn(x)
         return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
-    return _fitness, centroid, solution_length
+
+    return _fitness, _inner_fn, centroid, solution_length
+
 
 # this is another version of the rotational transform, where we have two means and a covariance matrix.
 # the centroid is shifted (mean_2), rotated, and shifted (mean) again.
