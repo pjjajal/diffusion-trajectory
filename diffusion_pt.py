@@ -174,7 +174,11 @@ class DiffusionSample:
         height=512,
         width=512,
         batch_size=1,
+        inject_multiple=False,  # denotes whether to inject noise at multiple denoising steps.
     ):
+        # injection flag
+        self.inject_multiple = inject_multiple
+
         # torch.Generator is a device-agnostic random number generator.
         self.generator = generator
 
@@ -199,18 +203,57 @@ class DiffusionSample:
         self.generate_latents()
 
     def __call__(self, noise_injection=None):
+        if self.inject_multiple and noise_injection is not None:
+            return self.sample_inject_multiple(noise_injection)
+        return self.sample(noise_injection)
+
+    # this is the default behavior, i.e., regular diffusion sampling and noise injection at t=T (i.e., at the latent).
+    def sample(self, noise_injection=None):
         _latents = self.latents * self.scheduler.init_noise_sigma + (
             noise_injection if noise_injection is not None else 0.0
-        )
+        )  # noise inject only at t=T latent, not at intermediate steps.
         self.scheduler.set_timesteps(self.num_inference_steps)
         for i, t in tqdm(enumerate(self.scheduler.timesteps)):
-            # for i,t in enumerate(scheduler.timesteps):
-            _latents = self._step(_latents, t, i + 1, None)
+            _latents = self._step(
+                _latents, t, None
+            )  # note that noise is not injected here.
         return self.decode_latents(_latents)
 
+    def sample_inject_multiple(self, noise_injection):
+        # noise injection at multiple denoising steps.
+        # noise_injection is a tensor of shape [b, t, c, h, w], where t the noise for the (T-t)-th denoising step.
+        num_noise = noise_injection.shape[1]
+        _latents = (
+            self.latents * self.scheduler.init_noise_sigma + noise_injection[:, 0]
+        )  # noise inject at t=T latent.
+        self.scheduler.set_timesteps(self.num_inference_steps)
+        for i, t in tqdm(enumerate(self.scheduler.timesteps)):
+            _latents = self._step(
+                _latents,
+                t,
+                noise_injection[:, i + 1] if i + 1 < num_noise else None,
+            )  # note that noise is injected here at intermediate steps.
+        return self.decode_latents(_latents)
+
+    def collect_model_pred(self):
+        _latents = self.latents * self.scheduler.init_noise_sigma
+        self.scheduler.set_timesteps(self.num_inference_steps)
+        preds = []
+        for i, t in tqdm(enumerate(self.scheduler.timesteps)):
+            _latents, preds = self._step(_latents, t, None, return_pred=True)
+            preds.append(preds)
+        return torch.stack(preds, dim=1)  # [b, t, c, h, w]
+
     def noise_injection_args(self):
+        centers = (
+            self.latents
+            if not self.inject_multiple
+            else torch.cat(
+                [self.latents.unsqueeze(1), self.collect_model_pred()], dim=1
+            )
+        )
         return (
-            self.latents,
+            centers, # when inject_multiple is False, centers is the latent tensor, otherwise it is the latent + model_preds (post_guidance) tensor.
             self.num_inference_steps + self.scheduler.config.steps_offset + 1,
             self.dtype,
         )
@@ -291,7 +334,7 @@ class DiffusionSample:
             device=device,
         )
 
-    def _step(self, x, t, i, noise_injection=None):
+    def _step(self, x, t, noise_injection=None, return_pred=False):
         b = x.shape[0]
         latent_model_input = torch.cat([x] * 2)
         latent_model_input = self.scheduler.scale_model_input(
@@ -313,10 +356,10 @@ class DiffusionSample:
             noise_pred_text - noise_pred_uncond
         )
 
-        # add noise injection
+        # noise injection in the model prediction.
         if noise_injection is not None:
             noise_pred = noise_pred + noise_injection
 
         # compute the previous noisy sample x_t -> x_t-1
         x = self.scheduler.step(noise_pred, t, x).prev_sample
-        return x
+        return (x, noise_pred) if return_pred else x
