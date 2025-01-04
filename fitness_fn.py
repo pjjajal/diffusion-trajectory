@@ -21,9 +21,9 @@ def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]):
 
 
 @torch.no_grad()
-def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0) -> Callable:
+def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0, dtype=torch.float32) -> Callable:
     processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
-    clip_model = CLIPModel.from_pretrained(clip_model_name, cache_dir=cache_dir).to(
+    clip_model = CLIPModel.from_pretrained(clip_model_name, cache_dir=cache_dir, torch_dtype=dtype).to(
         device=device
     )
 
@@ -33,7 +33,7 @@ def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0) -> Callab
         # _prompt = [_prompt[0],]
         inputs = processor(
             text=_prompt, images=pil_imgs, return_tensors="pt", padding=True
-        ).to(device=0)
+        ).to(device=device)
         outputs = clip_model(**inputs)
         score = outputs[0][0]
         # print(outputs.logits_per_image)
@@ -126,7 +126,8 @@ def pickscore_fitness_fn(
         "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
     )
     pick_model.eval().to(device=device)
-
+    
+    @torch.no_grad()
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         if isinstance(img, torch.Tensor):
             img = pt_to_pil(img)
@@ -182,14 +183,14 @@ class Novelty:
         "dino_small": ("facebook/dinov2-small", True),
         "dino_base": ("facebook/dinov2-base", True),
         "dino_large": ("facebook/dinov2-large", True),
-        "clip-base": ("openai/clip-vit-base-patch16", False),
-        "clip-large": ("openai/clip-vit-large-patch14", False),
+        "clip_base": ("openai/clip-vit-base-patch16", False),
+        "clip_large": ("openai/clip-vit-large-patch14", False),
     }
 
     def __init__(
         self,
         model_name: Literal[
-            "dino_small", "dino_base", "dino_large", "clip-base", "clip-large"
+            "dino_small", "dino_base", "dino_large", "clip_base", "clip_large"
         ],
         top_k=5,
         cache_dir=None,
@@ -207,9 +208,9 @@ class Novelty:
         self.model = self.model if self.is_dino else self.model.vision_model  # for CLIP
         self.history = None
 
-    def _compute_score(self, x):
+    def _compute_score(self, x, top_k):
         dists = (x - self.history).norm(dim=-1)
-        top_k, _ = torch.topk(dists, k=self.top_k, largest=True)
+        top_k, _ = torch.topk(dists, k=top_k, largest=False)
         return top_k.mean()
 
     @torch.no_grad()
@@ -224,9 +225,11 @@ class Novelty:
             self.history = features
             return torch.tensor(0.0).unsqueeze(0)
         elif self.history.shape[0] < self.top_k:
+            score = self._compute_score(features, self.history.shape[0])
             self.history = torch.cat([self.history, features])
-            return torch.tensor(0.0).unsqueeze(0)
+            return score
+            
 
-        score = self._compute_score(features)
+        score = self._compute_score(features, self.top_k)
         self.history = torch.cat([self.history, features])
         return score

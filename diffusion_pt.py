@@ -238,11 +238,11 @@ class DiffusionSample:
     def collect_model_pred(self):
         _latents = self.latents * self.scheduler.init_noise_sigma
         self.scheduler.set_timesteps(self.num_inference_steps)
-        preds = []
+        preds_list = []
         for i, t in tqdm(enumerate(self.scheduler.timesteps)):
             _latents, preds = self._step(_latents, t, None, return_pred=True)
-            preds.append(preds)
-        return torch.stack(preds, dim=1)  # [b, t, c, h, w]
+            preds_list.append(preds)
+        return torch.stack(preds_list, dim=1)  # [b, t, c, h, w]
 
     def noise_injection_args(self):
         centers = (
