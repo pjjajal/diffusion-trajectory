@@ -175,9 +175,15 @@ class DiffusionSample:
         width=512,
         batch_size=1,
         inject_multiple=False,  # denotes whether to inject noise at multiple denoising steps.
+        inject_multiple_noise_scale: list[float] | float = 1.0,
     ):
         # injection flag
         self.inject_multiple = inject_multiple
+        self.inject_multiple_noise_scale = (
+            inject_multiple_noise_scale
+            if isinstance(inject_multiple_noise_scale, list)
+            else [inject_multiple_noise_scale]
+        )
 
         # torch.Generator is a device-agnostic random number generator.
         self.generator = generator
@@ -223,38 +229,41 @@ class DiffusionSample:
         # noise injection at multiple denoising steps.
         # noise_injection is a tensor of shape [b, t, c, h, w], where t the noise for the (T-t)-th denoising step.
         num_noise = noise_injection.shape[1]
-        _latents = (
-            self.latents * self.scheduler.init_noise_sigma + noise_injection[:, 0]
-        )  # noise inject at t=T latent.
+        noise_scale = self._get_inject_multiple_noise_scale(0, num_noise)
+        _latents = self.latents * self.scheduler.init_noise_sigma + (
+            noise_scale * noise_injection[:, 0] if noise_injection is not None else 0.0
+        )  # noise inject only at t=T latent, not at intermediate steps.
         self.scheduler.set_timesteps(self.num_inference_steps)
         for i, t in tqdm(enumerate(self.scheduler.timesteps)):
+            # noise_weight is the scaling factor for the noise at the i-th denoising step.
+            # this makes it so that the preturbations are scaled down as t->0.
+            noise_weight = (1 - self.scheduler.alphas_cumprod[t]) ** 0.5
+            noise_scale = self._get_inject_multiple_noise_scale(i, num_noise)
+            noise_weight = noise_weight * noise_scale
             _latents = self._step(
                 _latents,
                 t,
-                noise_injection[:, i + 1] if i + 1 < num_noise else None,
+                noise_weight * noise_injection[:, i] if i < num_noise and i != 0 else None,
             )  # note that noise is injected here at intermediate steps.
         return self.decode_latents(_latents)
 
-    def collect_model_pred(self):
+    def collect_model_preds(self):
         _latents = self.latents * self.scheduler.init_noise_sigma
         self.scheduler.set_timesteps(self.num_inference_steps)
+        preds = _latents
         preds_list = []
         for i, t in tqdm(enumerate(self.scheduler.timesteps)):
-            _latents, preds = self._step(_latents, t, None, return_pred=True)
             preds_list.append(preds)
+            _latents, preds = self._step(_latents, t, None, return_pred=True)
         return torch.stack(preds_list, dim=1)  # [b, t, c, h, w]
 
     def noise_injection_args(self):
         centers = (
-            self.latents
-            if not self.inject_multiple
-            else torch.cat(
-                [self.latents.unsqueeze(1), self.collect_model_pred()], dim=1
-            )
+            self.latents if not self.inject_multiple else self.collect_model_preds()
         )
         return (
             centers,  # when inject_multiple is False, centers is the latent tensor, otherwise it is the latent + model_preds (post_guidance) tensor.
-            self.num_inference_steps + self.scheduler.config.steps_offset + 1,
+            self.num_inference_steps + self.scheduler.config.steps_offset,
             self.dtype,
         )
 
@@ -285,6 +294,13 @@ class DiffusionSample:
         with torch.no_grad():
             samples = self.vae.decode(latents).sample
         return samples
+
+    def _get_inject_multiple_noise_scale(self, i, num_noise):
+        if i < len(
+            self.inject_multiple_noise_scale
+        ):
+            return self.inject_multiple_noise_scale[i]
+        return self.inject_multiple_noise_scale[-1]
 
     def _embed_text(self, tokenizer, text_encoder, prompt: list[str]):
         batch_size = len(prompt)
