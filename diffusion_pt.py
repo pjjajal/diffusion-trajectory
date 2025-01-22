@@ -1,6 +1,7 @@
 import torch
 from PIL import Image
-from tqdm.auto import tqdm
+from tqdm import tqdm
+import os
 
 
 def embed_text(tokenizer, text_encoder, prompt: list[str]):
@@ -28,7 +29,6 @@ def embed_text(tokenizer, text_encoder, prompt: list[str]):
     text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
     return text_embeddings
 
-
 def generate_latent(
     vae_config, unet_config, generator, device, height=512, width=512, batch_size=1
 ):
@@ -41,7 +41,6 @@ def generate_latent(
         device=device,
     )
 
-
 def sample_latents(
     unet,
     scheduler,
@@ -50,12 +49,11 @@ def sample_latents(
     num_inference_steps,
     guidance_scale=0.5,
 ):
-    latents = latents * scheduler.init_noise_sigma
-
     scheduler.set_timesteps(num_inference_steps)
-
+    latents = latents * scheduler.init_noise_sigma
     latent_model_input = latents
-    for t in tqdm(scheduler.timesteps):
+
+    for t in scheduler.timesteps:
         latent_model_input = torch.cat([latents] * 2)
         latent_model_input = scheduler.scale_model_input(latent_model_input, timestep=t)
 
@@ -73,8 +71,8 @@ def sample_latents(
 
         # compute the previous noisy sample x_t -> x_t-1
         latents = scheduler.step(noise_pred, t, latents).prev_sample
-    return latents
 
+    return latents
 
 # this is written in this way to expose a callable function which can be used with a black-box optimization algo.
 # it should be noted that sampling will be determinstic because the latents are fixed for the callable function.
@@ -95,7 +93,8 @@ def diffusion_sample(
     unet = pipeline.unet
     scheduler = pipeline.scheduler
     dtype = pipeline.dtype
-    print(f"using dtype: {dtype}")
+
+    # print(f"using dtype: {dtype}")
 
     if len(prompt) != batch_size:
         prompt = prompt * batch_size
@@ -143,9 +142,12 @@ def diffusion_sample(
             noise_injection if noise_injection is not None else 0.0
         )
         scheduler.set_timesteps(num_inference_steps)
-        for i, t in tqdm(enumerate(scheduler.timesteps)):
-            # for i,t in enumerate(scheduler.timesteps):
+
+        progress_bar = enumerate(scheduler.timesteps)
+
+        for i, t in progress_bar:
             _latents = _step(_latents, t, i + 1, None)
+
         return decode_latents(_latents, vae)
 
     return (
@@ -195,7 +197,8 @@ class DiffusionSample:
         self.unet = pipeline.unet
         self.scheduler = pipeline.scheduler
         self.dtype = pipeline.dtype
-        print(f"using dtype: {self.dtype}")
+
+        # print(f"using dtype: {self.dtype}")
 
         # pipeline configuration
         self.prompt = prompt

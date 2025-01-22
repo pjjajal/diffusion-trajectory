@@ -10,7 +10,6 @@ class VectorizedProblem(Problem):
         self,
         objective_sense,
         objective_func=None,
-        *,
         initial_bounds=None,
         bounds=None,
         solution_length=None,
@@ -87,5 +86,5 @@ class VectorizedProblem(Problem):
             split_all_result_list.append(split_result_tensor)
         split_all_result_tensor = torch.cat(split_all_result_list, dim=0)
 
-        print(f"split_all_result_tensor.shape {split_all_result_tensor.shape}")
+        # print(f"split_all_result_tensor.shape {split_all_result_tensor.shape}")
         solutions.set_evals(split_all_result_tensor)
