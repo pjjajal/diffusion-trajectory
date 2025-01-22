@@ -85,7 +85,7 @@ def aesthetic_fitness_fn(
         "openai/clip-vit-large-patch14-336", cache_dir=cache_dir
     )
     clip_model = CLIPModel.from_pretrained(
-        "openai/clip-vit-large-patch14-336", cache_dir=cache_dir
+        "openai/clip-vit-large-patch14-336", cache_dir=cache_dir, torch_dtype=dtype
     )
     clip_model.eval().to(device=device)
 
@@ -94,8 +94,9 @@ def aesthetic_fitness_fn(
     aesthetic_mlp.load_state_dict(
         torch.load(os.path.join(cache_dir, "sac+logos+ava1-l14-linearMSE.pth"))
     )
-    aesthetic_mlp.eval().to(device=device)
-
+    aesthetic_mlp.eval().to(device=device).to(dtype=dtype)
+    
+    @torch.no_grad()
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         if isinstance(img, torch.Tensor):
             img = pt_to_pil(img)
