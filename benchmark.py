@@ -5,10 +5,10 @@ from diffusers import DiffusionPipeline
 from diffusers.utils import pt_to_pil
 from evotorch.algorithms import CMAES, SNES, CEM
 from evotorch.logging import PandasLogger
-from diffusion_pt import diffusion_sample
-from fitness_fn import *
-from noise_injection import rotational_transform
-from vectorized_problem import VectorizedProblem
+from noise_injection_pipelines.diffusion_pt import diffusion_sample
+from fitness.fitness_fn import *
+from noise_injection_pipelines.noise_injection import rotational_transform
+from evo.vectorized_problem import VectorizedProblem
 import matplotlib.pyplot as plt
 import argparse
 from PIL.Image import Image
