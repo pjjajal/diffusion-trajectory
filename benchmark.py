@@ -5,7 +5,7 @@ from diffusers import DiffusionPipeline
 from diffusers.utils import pt_to_pil
 from evotorch.algorithms import CMAES, SNES, CEM
 from evotorch.logging import PandasLogger
-from noise_injection_pipelines.diffusion_pt import diffusion_sample
+from noise_injection_pipelines.diffusion_pt import DiffusionSample
 from fitness.fitness_fn import *
 from noise_injection_pipelines.noise_injection import rotational_transform
 from evo.vectorized_problem import VectorizedProblem
@@ -226,13 +226,25 @@ if __name__ == "__main__":
 		cache_dir=args.cache_dir,
 	).to(args.device)
 
-	sample_callable, latents, _, dtype = diffusion_sample(
-		pipeline, 
-		prompt=[args.prompt], 
-		num_inference_steps=args.denoising_steps, 
-		generator=torch_rng, 
-		guidance_scale=args.guidance_scale, 
-		batch_size=args.batch_size)
+	### DEPRECATED: Use DiffusionSample(...) class instead
+	# sample_callable, latents, _, dtype = diffusion_sample(
+	# 	pipeline, 
+	# 	prompt=[args.prompt], 
+	# 	num_inference_steps=args.denoising_steps, 
+	# 	generator=torch_rng, 
+	# 	guidance_scale=args.guidance_scale, 
+	# 	batch_size=args.batch_size)
+
+	diffusion_sampler_callable = DiffusionSample(
+		pipeline=pipeline,
+		prompt=[args.prompt],
+		num_inference_steps=args.denoising_steps,
+		generator=torch_rng,
+		guidance_scale=args.guidance_scale,
+		batch_size=args.batch_size
+	)
+
+	latents, num_inference_steps, _ = diffusion_sampler_callable.noise_injection_args()
 	
 	###
 	### Fitness Setup
@@ -247,13 +259,13 @@ if __name__ == "__main__":
 	initial_bounds = (-1,1)
 
 	objective_callable, objective_transform_callable, centroid, solution_length = rotational_transform(
-		sample_callable, 
+		diffusion_sampler_callable, 
 		total_fitness_callable, 
 		latents.shape, 
 		args.device, 
 		center=latents, 
 		mean_scale=mean_scale, 
-		dtype=dtype)
+		dtype=args.pipeline_dtype)
 	
 	problem = VectorizedProblem(
 		objective_sense=args.fitness_optim_objective,
@@ -270,7 +282,7 @@ if __name__ == "__main__":
 	###
 	### Benchmarking!
 	###
-	sampled_frames_tensor, latency_report_dataframe = diffusion_solve_and_sample(args, solver, sample_callable)
+	sampled_frames_tensor, latency_report_dataframe = diffusion_solve_and_sample(args, solver, diffusion_sampler_callable)
 	solver_report_dataframe = solver_logger.to_dataframe()
 
 	### Convert `sampled_frames` Tensor to PIL Image list
