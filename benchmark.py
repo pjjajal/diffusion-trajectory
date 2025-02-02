@@ -4,34 +4,25 @@ from einops import einsum
 from diffusers import DiffusionPipeline
 from diffusers.utils import pt_to_pil
 from evotorch.algorithms import CMAES, SNES, CEM
-from evotorch.logging import PandasLogger
 from noise_injection_pipelines.diffusion_pt import DiffusionSample
 from fitness.fitness_fn import *
 from noise_injection_pipelines.noise_injection import rotational_transform
 from evo.vectorized_problem import VectorizedProblem
-import matplotlib.pyplot as plt
 import argparse
 from PIL.Image import Image
 import subprocess
-from typing import List, Callable, Dict, Tuple, Any
+from typing import *
 import logging
 import warnings
 from pathlib import Path, PosixPath, WindowsPath
 from tqdm.auto import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 import pandas
-
 
 ###
 ### Loggging and output Handling
 ###
 warnings.filterwarnings("ignore")
-
-### Disables evotorch logging
-if "evotorch.core" in logging.Logger.manager.loggerDict:
-	logging.getLogger("evotorch.core").disabled = True
-
-bench_logger = logging.getLogger("benchmark.py")
-
 
 ###
 ### Constants, LUTs + Dicts
@@ -100,7 +91,7 @@ def ffmpeg_make_gif_subprocess(frames: List[Image], frame_dump_path: Path, gif_f
 
 	### -y allows overwriting
 	command = f"ffmpeg -y -framerate {fps} -i {ffmpeg_in_str} {ffmpeg_out_str}"
-	bench_logger.info(f"Attempting to execute:\"{command}\"")
+	print(f"Attempting to execute:\"{command}\"")
 
 	try:
 		subprocess.run(
@@ -111,7 +102,7 @@ def ffmpeg_make_gif_subprocess(frames: List[Image], frame_dump_path: Path, gif_f
 			stderr=subprocess.STDOUT,
 		)
 	except subprocess.CalledProcessError as e:
-		bench_logger.critical(f"Error invoking ffmpeg:\n{e}\n")
+		print(f"Error invoking ffmpeg:\n{e}\n")
 
 
 def compose_fitness_callables_and_weights(args: argparse.Namespace) -> Tuple[List[Callable], List[float]]:
@@ -163,44 +154,68 @@ def compose_fitness_callables_and_weights(args: argparse.Namespace) -> Tuple[Lis
 
 
 ### Iteratively sample and search for a noise vector solution
-def diffusion_solve_and_sample(args : argparse.Namespace, solver: CMAES, sample_callable : Callable) -> Tuple[torch.Tensor, pandas.DataFrame]:
+def diffusion_solve_and_sample(
+		args: argparse.Namespace, 
+		solver: CMAES, 
+		sample_callable: Callable, 
+		transform_callable: Callable, 
+		total_fitness_callable: Callable
+	) -> Tuple[torch.Tensor, pandas.DataFrame]:
+	
 	### Get the frames as a single tensor of empty elements
 	sampled_frames = torch.empty(
 		(1 + args.sample_count, 3, 512, 512), 
 		dtype=args.pipeline_dtype, 
 		device=args.device
 	)
-
 	### Latency Report
 	latency_report_dict = {}
-	latency_report_columns = ["Sample Index", "Sample Time (ms)", "Solve Time (ms)"]
+	latency_report_columns = ["Sample Index", "Sample Time (ms)", "Solve Time (ms)", "Total Fitness"]
 
 	### Get the initial image
 	sampled_frames[0] = sample_callable()
+	latency_report_dict[0] = [0, 0, 0, total_fitness_callable(sampled_frames[0:1]).item()]
 
 	### TQDM?
-	progress_bar = tqdm(range(args.sample_count), desc="diffusion_solve_and_sample(...)")
+	progress_bar = tqdm(range(args.sample_count))
 
 	### Solve for updated noise, and resample
 	for step in progress_bar:
+		### Solve for updated noise
+		start_solve_time = torch.cuda.Event(enable_timing=True)
+		end_solve_time = torch.cuda.Event(enable_timing=True)
+		start_solve_time.record()
+
 		solver.step()
+
+		end_solve_time.record()
+		torch.cuda.synchronize()
+		solve_time = start_solve_time.elapsed_time(end_solve_time)
+
 		best_candidate_index = solver.population.argbest()
+		### Identify best candidate noise transformation vector
 		x = solver.population[best_candidate_index].values
-		x = x.reshape(-1, 4 + 4 ** 2)
 
-		mean = x[:, :4]
-		cov = x[:, 4:].reshape(-1, 4, 4)
-		rot, scaling = torch.linalg.qr(cov)
-		mean =  mean.to(args.device, dtype=args.pipeline_dtype).unsqueeze(-1).unsqueeze(-1)
-		rot = rot.to(args.device, dtype=args.pipeline_dtype)
+		### Apply transformation
+		start_transform_time = torch.cuda.Event(enable_timing=True)
+		end_transform_time = torch.cuda.Event(enable_timing=True)
+		start_transform_time.record()
 
-		x = einsum(centroid, rot, 'b c h w, p c1 c -> p c1 h w')
-		x = x + mean_scale * mean - centroid
+		sampled_frames[1 + step] = transform_callable(x)
 
-		sampled_frames[1 + step] = sample_callable(x)
+		end_transform_time.record()
+		torch.cuda.synchronize()
+		transform_and_sample_time = start_transform_time.elapsed_time(end_transform_time)
+
+		### Report fitness (slice in a way to ensure the 0th dimension is preserved)
+		total_fitness = total_fitness_callable(sampled_frames[1 + step:1 + step + 1]).item()
+
+		### Update dict
+		latency_report_dict[1 + step] = [1 + step, float(transform_and_sample_time), float(solve_time), float(total_fitness)]
 
 	### Dict to DataFrame
-	latency_report_dataframe = pandas.DataFrame(data=latency_report_dict, columns=latency_report_columns)
+	latency_report_dataframe = pandas.DataFrame.from_dict(data=latency_report_dict, orient="index", columns=latency_report_columns)
+	latency_report_dataframe = latency_report_dataframe.round(2)
 
 	### Return values
 	return sampled_frames, latency_report_dataframe
@@ -225,15 +240,6 @@ if __name__ == "__main__":
 		torch_dtype=args.pipeline_dtype,
 		cache_dir=args.cache_dir,
 	).to(args.device)
-
-	### DEPRECATED: Use DiffusionSample(...) class instead
-	# sample_callable, latents, _, dtype = diffusion_sample(
-	# 	pipeline, 
-	# 	prompt=[args.prompt], 
-	# 	num_inference_steps=args.denoising_steps, 
-	# 	generator=torch_rng, 
-	# 	guidance_scale=args.guidance_scale, 
-	# 	batch_size=args.batch_size)
 
 	diffusion_sampler_callable = DiffusionSample(
 		pipeline=pipeline,
@@ -277,13 +283,11 @@ if __name__ == "__main__":
 		initialization=None)
 	
 	solver = CMAES(problem, stdev_init=1, separable=False, csa_squared=True)
-	solver_logger = PandasLogger(solver)
 
 	###
 	### Benchmarking!
 	###
-	sampled_frames_tensor, latency_report_dataframe = diffusion_solve_and_sample(args, solver, diffusion_sampler_callable)
-	solver_report_dataframe = solver_logger.to_dataframe()
+	sampled_frames_tensor, latency_report_dataframe = diffusion_solve_and_sample(args, solver, diffusion_sampler_callable, objective_transform_callable, total_fitness_callable)
 
 	### Convert `sampled_frames` Tensor to PIL Image list
 	sampled_frames_image_list = pt_to_pil(sampled_frames_tensor)
@@ -296,7 +300,8 @@ if __name__ == "__main__":
 	ffmpeg_make_gif_subprocess(sampled_frames_image_list, frame_dump_path, "animation.gif", fps=2, dump_only=False)
 
 	### Dump solver report, latency
-	solver_report_dataframe.to_csv("report_solver.csv", index=False)
-	latency_report_dataframe.to_csv("report_latency.csv", index=False)
+	report_path = "report.csv"
+	latency_report_dataframe.to_csv(report_path, index=False)
+	print(f"Report dumped to: {report_path}")
 
-	bench_logger.info("Done!")
+	print(f"Done!")

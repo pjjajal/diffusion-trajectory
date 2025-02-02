@@ -13,7 +13,7 @@ import pytorch_lightning as lightning
 
 
 @torch.no_grad()
-def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]):
+def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Callable:
     fitness = lambda img: sum(
         [w * fn(img).cpu() for w, fn in zip(weights, fitness_fns)]
     )

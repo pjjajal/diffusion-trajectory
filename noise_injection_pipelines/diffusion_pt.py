@@ -222,7 +222,7 @@ class DiffusionSample:
             noise_injection if noise_injection is not None else 0.0
         )  # noise inject only at t=T latent, not at intermediate steps.
         self.scheduler.set_timesteps(self.num_inference_steps)
-        for i, t in tqdm(enumerate(self.scheduler.timesteps)):
+        for i, t in (enumerate(self.scheduler.timesteps)):
             _latents = self._step(
                 _latents, t, None
             )  # note that noise is not injected here.
@@ -237,7 +237,7 @@ class DiffusionSample:
             noise_scale * noise_injection[:, 0] if noise_injection is not None else 0.0
         )  # noise inject only at t=T latent, not at intermediate steps.
         self.scheduler.set_timesteps(self.num_inference_steps)
-        for i, t in tqdm(enumerate(self.scheduler.timesteps)):
+        for i, t in (enumerate(self.scheduler.timesteps)):
             # noise_weight is the scaling factor for the noise at the i-th denoising step.
             # this makes it so that the preturbations are scaled down as t->0.
             noise_weight = (1 - self.scheduler.alphas_cumprod[t]) ** 0.5
@@ -255,7 +255,7 @@ class DiffusionSample:
         self.scheduler.set_timesteps(self.num_inference_steps)
         preds = _latents
         preds_list = []
-        for i, t in tqdm(enumerate(self.scheduler.timesteps)):
+        for i, t in (enumerate(self.scheduler.timesteps)):
             preds_list.append(preds)
             _latents, preds = self._step(_latents, t, None, return_pred=True)
         return torch.stack(preds_list, dim=1)  # [b, t, c, h, w]
