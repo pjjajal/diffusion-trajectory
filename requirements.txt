@@ -12,3 +12,5 @@ evotorch
 ipykernel
 ipywidgets
 treescope
+hpsv2
+image-reward

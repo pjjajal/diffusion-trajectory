@@ -34,6 +34,7 @@ def handle_input(img: torch.Tensor | np.ndarray) -> Image:
 ###
 ### Return callable which computes total fitness score
 ###
+@torch.inference_mode()
 def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Callable:
     fitness = lambda img: sum(
         [w * fn(img).cpu() for w, fn in zip(weights, fitness_fns)]
@@ -119,6 +120,7 @@ def clip_fitness_fn(
         clip_model_name, cache_dir=cache_dir, torch_dtype=dtype
     ).to(device=device)
 
+    @torch.inference_mode()
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
         pil_imgs = handle_input(img)
         _prompt = [prompt] if isinstance(prompt, str) else prompt
@@ -181,6 +183,7 @@ def aesthetic_fitness_fn(
     )
     aesthetic_mlp.eval().to(device=device).to(dtype=dtype)
 
+    @torch.inference_mode()
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
         img = handle_input(img)
         inputs = processor(
@@ -212,6 +215,7 @@ def pickscore_fitness_fn(
     )
     pick_model.eval().to(device=device)
 
+    @torch.inference_mode()
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
         img = handle_input(img)
 
@@ -253,7 +257,8 @@ def imagereward_fitness_fn(
     ### Load the model
     imagereward_model = ImageReward.load("ImageReward-v1.0")
     imagereward_model.eval().to(device)
-
+    
+    @torch.inference_mode()
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         img = handle_input(img)
         ranking, score = imagereward_model.score(img, prompt)
@@ -269,6 +274,7 @@ def hpsv2_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
 ) -> Callable:
     
+    @torch.inference_mode()
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         img = handle_input(img)
         return hpsv2.score(img, prompt, hps_version="v2.1") 
@@ -328,6 +334,7 @@ class Novelty:
         top_k, _ = torch.topk(dists, k=top_k, largest=False)
         return top_k.mean()
 
+    @torch.inference_mode()
     def __call__(self, img: torch.Tensor | np.ndarray) -> torch.Tensor:
         pil_imgs = handle_input(img)
         inputs = self.processor(images=pil_imgs, return_tensors="pt", padding=True).to(
