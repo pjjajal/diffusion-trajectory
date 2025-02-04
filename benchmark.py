@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from einops import einsum
 from diffusers import DiffusionPipeline
-from diffusers.utils import pt_to_pil
+from diffusers.utils import pt_to_pil, export_to_gif
 from evotorch.algorithms import CMAES, SNES, CEM
 from noise_injection_pipelines.diffusion_pt import DiffusionSample
 from fitness.fitness_fn import *
@@ -65,6 +65,8 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument('--device', type=str, default="cuda:0")
 	parser.add_argument('--batch-size', type=int, default=1)
 
+	parser.add_argument('--gif-dump-fps', type=int, default=2)
+
 	args = parser.parse_args()
 
 	### Post-process args
@@ -75,39 +77,71 @@ def parse_args() -> argparse.Namespace:
 	return args
 
 
-### Generate a .GIF from a sequence of images 
-def ffmpeg_make_gif_subprocess(frames: List[Image], frame_dump_path: Path, gif_filename: str, fps: int = 2, dump_only: bool = False):
-	### Sanitize
-	assert(gif_filename.lower().endswith(".gif"))
+###
+### Parse arguments, return callable to return total fitness score
+###
+def compose_fitness_callables_and_weights(args: argparse.Namespace) -> Callable:
+	### Fitness Functions
+	fitness_callables = []
+	fitness_weights = []
 
-	gif_dump_path = frame_dump_path.joinpath(gif_filename)
+	if args.fitness_clip_weight > 0.0:
+		fitness_clip_callable = clip_fitness_fn(
+			clip_model_name="openai/clip-vit-large-patch14",
+			prompt=args.fitness_prompt, 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(fitness_clip_callable)
+		fitness_weights.append(args.fitness_clip_weight)
 
-	### Dump frames
-	for idx, frame in enumerate(frames):
-		frame.save(frame_dump_path / f"frame-{idx}.png")
-	if dump_only:
-		return
+	if args.fitness_brightness > 0.0:
+		fitness_brightness_callable = brightness()
+		fitness_callables.append(fitness_brightness_callable)
+		fitness_weights.append(args.fitness_brightness)
 
-	### Invoke ffmpeg
-	ffmpeg_in_str = f"{str(frame_dump_path)}/frame-%d.png"
-	### Need for Git Bash on windows. Unbelievable.
-	ffmpeg_in_str = ffmpeg_in_str.replace("\\", "/") if isinstance(frame_dump_path, WindowsPath) else ffmpeg_in_str
-	ffmpeg_out_str = str(gif_dump_path).replace("\\", "/") if isinstance(gif_dump_path, WindowsPath) else gif_dump_path
+	if args.fitness_aesthetic_weight > 0.0:
+		aesthetic_fitness_callable = aesthetic_fitness_fn(
+			prompt=[args.fitness_prompt], 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(aesthetic_fitness_callable)
+		fitness_weights.append(args.fitness_aesthetic_weight)
 
-	### -y allows overwriting
-	command = f"ffmpeg -y -framerate {fps} -i {ffmpeg_in_str} {ffmpeg_out_str}"
-	print(f"Attempting to execute:\"{command}\"")
+	if args.fitness_pick_weight > 0.0:
+		pickscore_fitness_callable = pickscore_fitness_fn(
+			prompt=[args.fitness_prompt], 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(pickscore_fitness_callable)
+		fitness_weights.append(args.fitness_pick_weight)
 
-	try:
-		subprocess.run(
-			command, 
-			check=True, 
-			shell=True,
-			stdout=subprocess.DEVNULL,
-			stderr=subprocess.STDOUT,
-		)
-	except subprocess.CalledProcessError as e:
-		print(f"Error invoking ffmpeg:\n{e}\n")
+	if args.fitness_novelty_weight > 0.0:
+		novelty_fitness_callable = Novelty(
+			prompt=[args.fitness_prompt], 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(novelty_fitness_callable)
+		fitness_weights.append(args.fitness_novelty_weight)
+	
+	if args.fitness_hpsv2_weight > 0.0:
+		hpsv2_fitness_callable = hpsv2_fitness_fn(
+			prompt=args.fitness_prompt, 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(hpsv2_fitness_callable)
+		fitness_weights.append(args.fitness_hpsv2_weight)
+
+	if args.fitness_imagereward_weight > 0.0:
+		imagereward_fitness_callable = imagereward_fitness_fn(
+			prompt=args.fitness_prompt, 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(imagereward_fitness_callable)
+		fitness_weights.append(args.fitness_imagereward_weight)
+
+	assert(len(fitness_callables) > 0)
+
+	return compose_fitness_fns( fitness_callables, fitness_weights )
 
 
 def measure_torch_device_memory_used_mb(device: torch.device) -> float:
@@ -164,10 +198,6 @@ def diffusion_solve_and_sample(
 
 			### Update dict
 			perf_report_dict[1 + step] = [1 + step, time.time() - start_time, float(total_fitness), measure_torch_device_memory_used_mb(args.device)]
-
-	### Done timing, report
-	elapsed_time = time.time() - start_time
-	print(f"Total elapsed time: {elapsed_time:.2f} seconds")
 
 	### Dict to DataFrame
 	perf_report_dataframe = pandas.DataFrame.from_dict(data=perf_report_dict, orient="index", columns=perf_report_columns)
@@ -246,7 +276,7 @@ if __name__ == "__main__":
 	frame_dump_path.mkdir(parents=True, exist_ok=True)
 
 	### Dump frames, GIF
-	ffmpeg_make_gif_subprocess(sampled_frames_image_list, frame_dump_path, "animation.gif", fps=2, dump_only=False)
+	export_to_gif(sampled_frames_image_list, frame_dump_path / "animation.gif", fps=args.gif_dump_fps)
 
 	### Dump solver report, latency
 	report_path = "report.csv"
