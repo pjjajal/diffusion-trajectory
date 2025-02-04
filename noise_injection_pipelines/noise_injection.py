@@ -41,7 +41,7 @@ def rotational_transform(
 
     def _fitness(x):
         samples = _inner_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+        return torch.cat([fitness_fn(sample) for sample in samples], dim=0)
 
     return _fitness, _inner_fn, centroid, solution_length
 
@@ -86,7 +86,7 @@ def svd_rot_transform(
 
     def _fitness(x):
         samples = _inner_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+        return torch.cat([fitness_fn(sample) for sample in samples], dim=0)
 
     return _fitness, _inner_fn, centroid, solution_length
 
@@ -160,7 +160,7 @@ def multi_axis_rotational_transform(
 
     def _fitness(x):
         samples = _inner_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+        return torch.cat([fitness_fn(sample) for sample in samples], dim=0)
 
     return _fitness, _inner_fn, centroid, solution_length
 

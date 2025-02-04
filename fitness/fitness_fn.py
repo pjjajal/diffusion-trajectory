@@ -3,13 +3,21 @@ import torch
 import torch.nn as nn
 import os
 from PIL.Image import Image
-from diffusers.utils import pt_to_pil
+from diffusers.utils import pt_to_pil, numpy_to_pil
 from typing import Callable, Literal, Union
 from transformers import CLIPProcessor, CLIPModel, AutoModel, AutoProcessor
 
 from typing import Callable
 from transformers import CLIPProcessor, CLIPModel
 import pytorch_lightning as lightning
+
+
+def handle_input(img: torch.Tensor | np.ndarray) -> Image:
+    if isinstance(img, torch.Tensor):
+        pil_imgs = pt_to_pil(img)
+    else:
+        pil_imgs = numpy_to_pil(img)
+    return pil_imgs
 
 
 @torch.no_grad()
@@ -19,16 +27,17 @@ def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Ca
     )
     return fitness
 
-
 @torch.no_grad()
-def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0, dtype=torch.float32) -> Callable:
+def clip_fitness_fn(
+    clip_model_name, prompt, cache_dir=None, device=0, dtype=torch.float32
+) -> Callable:
     processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
-    clip_model = CLIPModel.from_pretrained(clip_model_name, cache_dir=cache_dir, torch_dtype=dtype).to(
-        device=device
-    )
+    clip_model = CLIPModel.from_pretrained(
+        clip_model_name, cache_dir=cache_dir, torch_dtype=dtype
+    ).to(device=device)
 
-    def fitness_fn(img: torch.Tensor) -> float:
-        pil_imgs = pt_to_pil(img)
+    def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
+        pil_imgs = handle_input(img)
         _prompt = [prompt] if isinstance(prompt, str) else prompt
         # _prompt = [_prompt[0],]
         inputs = processor(
@@ -95,12 +104,10 @@ def aesthetic_fitness_fn(
         torch.load(os.path.join(cache_dir, "sac+logos+ava1-l14-linearMSE.pth"))
     )
     aesthetic_mlp.eval().to(device=device).to(dtype=dtype)
-    
-    @torch.no_grad()
-    def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
-        if isinstance(img, torch.Tensor):
-            img = pt_to_pil(img)
 
+    @torch.no_grad()
+    def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
+        img = handle_input(img)
         inputs = processor(
             images=img,
             return_tensors="pt",
@@ -127,11 +134,10 @@ def pickscore_fitness_fn(
         "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
     )
     pick_model.eval().to(device=device)
-    
+
     @torch.no_grad()
-    def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
-        if isinstance(img, torch.Tensor):
-            img = pt_to_pil(img)
+    def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
+        img = handle_input(img)
 
         image_inputs = processor(
             images=img,
@@ -162,17 +168,17 @@ def pickscore_fitness_fn(
     return fitness_fn
 
 
-def brightness(img: torch.Tensor) -> float:
-    pil_imgs = pt_to_pil(img)
+def brightness(img: torch.Tensor | np.ndarray) -> float:
+    pil_imgs = handle_input(img)
     hsv_imgs = [pil_img.convert("HSV") for pil_img in pil_imgs]
     vs = [np.array(hsv_img.split()[-1]) for hsv_img in hsv_imgs]
     v = torch.tensor(np.mean(np.array(vs)) / 255.0).unsqueeze(0)
     return v
 
 
-def relative_luminance(img: torch.Tensor) -> torch.Tensor:
+def relative_luminance(img: torch.Tensor | np.ndarray) -> torch.Tensor:
     weights = np.array([0.2126, 0.7152, 0.0722])
-    pil_imgs = pt_to_pil(img)
+    pil_imgs = handle_input(img)
     imgs = [np.array(pil_img) * weights for pil_img in pil_imgs]
     v = [np.mean(img, axis=(0, 1)).sum() / 255.0 for img in imgs]
     v = torch.tensor(v).unsqueeze(0)
@@ -215,8 +221,8 @@ class Novelty:
         return top_k.mean()
 
     @torch.no_grad()
-    def __call__(self, img: torch.Tensor) -> torch.Tensor:
-        pil_imgs = pt_to_pil(img)
+    def __call__(self, img: torch.Tensor | np.ndarray) -> torch.Tensor:
+        pil_imgs = handle_input(img)
         inputs = self.processor(images=pil_imgs, return_tensors="pt", padding=True).to(
             device=self.device
         )
@@ -229,7 +235,6 @@ class Novelty:
             score = self._compute_score(features, self.history.shape[0])
             self.history = torch.cat([self.history, features])
             return score
-            
 
         score = self._compute_score(features, self.top_k)
         self.history = torch.cat([self.history, features])
