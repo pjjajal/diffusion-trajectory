@@ -1,5 +1,6 @@
 import torch
 from einops import einsum
+from .diffusion_pt import DiffusionSample
 
 
 # this function parameterizes the noise as the difference between the orginal latent and a rotated + translated version of it.
@@ -41,7 +42,7 @@ def rotational_transform(
 
     def _fitness(x):
         samples = _inner_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+        return torch.cat([fitness_fn(sample.unsqueeze(0)) if isinstance(sample_fn, DiffusionSample) else fitness_fn(sample) for sample in samples], dim=0)
 
     return _fitness, _inner_fn, centroid, solution_length
 
@@ -86,7 +87,7 @@ def svd_rot_transform(
 
     def _fitness(x):
         samples = _inner_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+        return torch.cat([fitness_fn(sample) for sample in samples], dim=0)
 
     return _fitness, _inner_fn, centroid, solution_length
 
@@ -160,7 +161,7 @@ def multi_axis_rotational_transform(
 
     def _fitness(x):
         samples = _inner_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+        return torch.cat([fitness_fn(sample) for sample in samples], dim=0)
 
     return _fitness, _inner_fn, centroid, solution_length
 

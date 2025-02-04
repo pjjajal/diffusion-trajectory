@@ -110,8 +110,6 @@ def ffmpeg_make_gif_subprocess(frames: List[Image], frame_dump_path: Path, gif_f
 		print(f"Error invoking ffmpeg:\n{e}\n")
 
 
-
-
 def measure_torch_device_memory_used_mb(device: torch.device) -> float:
 	free, total = torch.cuda.mem_get_info(device)
 	return (total - free) / 1024 ** 2
@@ -137,33 +135,35 @@ def diffusion_solve_and_sample(
 	perf_report_dict = {}
 	perf_report_columns = ["Sample Index", "Elapsed Wall Time(s)", f"Total Fitness (Goal={fitness_goal:.2f})", "PyTorch Memory Usage (MB)"]
 
-	### Begin timing
-	start_time = time.time()
-
-	### Get the initial image
-	sampled_frames[0] = sample_callable().to("cpu")
-	perf_report_dict[0] = [0, time.time() - start_time, total_fitness_callable(sampled_frames[0:1]).item(), measure_torch_device_memory_used_mb(args.device)]
-
 	### TQDM?
 	progress_bar = tqdm(range(args.sample_count))
 
-	### Solve for updated noise, and resample
-	for step in progress_bar:
-		### Solve for updated noise
-		solver.step()
+	### Operate in inference mode
+	with torch.inference_mode():
+		### Begin timing
+		start_time = time.time()
 
-		best_candidate_index = solver.population.argbest()
-		### Identify best candidate noise transformation vector
-		x = solver.population[best_candidate_index].values
+		### Get the initial image
+		sampled_frames[0] = sample_callable().cpu()
+		perf_report_dict[0] = [0, time.time() - start_time, total_fitness_callable(sampled_frames[0:1]).item(), measure_torch_device_memory_used_mb(args.device)]
 
-		### Store on CPU
-		sampled_frames[1 + step] = transform_callable(x).to("cpu")
+		### Solve for updated noise, and resample
+		for step in progress_bar:
+			### Solve for updated noise
+			solver.step()
 
-		### Report fitness (slice in a way to ensure the 0th dimension is preserved)
-		total_fitness = total_fitness_callable(sampled_frames[1 + step:1 + step + 1]).item()
+			best_candidate_index = solver.population.argbest()
+			### Identify best candidate noise transformation vector
+			x = solver.population[best_candidate_index].values
 
-		### Update dict
-		perf_report_dict[1 + step] = [1 + step, time.time() - start_time, float(total_fitness), measure_torch_device_memory_used_mb(args.device)]
+			### Store on CPU
+			sampled_frames[1 + step] = transform_callable(x).cpu()
+
+			### Report fitness (slice in a way to ensure the 0th dimension is preserved)
+			total_fitness = total_fitness_callable(sampled_frames[1 + step:1 + step + 1]).item()
+
+			### Update dict
+			perf_report_dict[1 + step] = [1 + step, time.time() - start_time, float(total_fitness), measure_torch_device_memory_used_mb(args.device)]
 
 	### Done timing, report
 	elapsed_time = time.time() - start_time
@@ -208,14 +208,10 @@ if __name__ == "__main__":
 
 	latents, num_inference_steps, _ = diffusion_sampler_callable.noise_injection_args()
 	
-	###
 	### Fitness Setup
-	###
 	total_fitness_callable = compose_fitness_callables_and_weights(args)
 
-	###
 	### Problem and Solver Setup
-	###
 	mean_scale = 0.01
 	initial_bounds = (-1,1)
 
@@ -239,9 +235,7 @@ if __name__ == "__main__":
 	
 	solver = CMAES(problem, stdev_init=1, separable=False, csa_squared=True)
 
-	###
 	### Benchmarking!
-	###
 	sampled_frames_tensor, latency_report_dataframe = diffusion_solve_and_sample(args, solver, diffusion_sampler_callable, objective_transform_callable, total_fitness_callable)
 
 	### Convert `sampled_frames` Tensor to PIL Image list
