@@ -18,11 +18,14 @@ from pathlib import Path, PosixPath, WindowsPath
 from tqdm.auto import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 import pandas
+import time
+
 
 ###
 ### Loggging and output Handling
 ###
 warnings.filterwarnings("ignore")
+
 
 ###
 ### Constants, LUTs + Dicts
@@ -50,11 +53,13 @@ def parse_args() -> argparse.Namespace:
 
 	parser.add_argument('--fitness-optim-objective', type=str, choices=["max", "min"], default="max")
 	parser.add_argument('--fitness-clip-weight', type=float, default=1.0)
-	parser.add_argument('--fitness-clip-prompt', type=str, default="A picture of an orange dog.")
+	parser.add_argument('--fitness-prompt', type=str, default="A picture of an orange dog.")
 	parser.add_argument('--fitness-brightness', type=float, default=0.0)
 	parser.add_argument('--fitness-aesthetic-weight', type=float, default=0.0)
 	parser.add_argument('--fitness-pick-weight', type=float, default=0.0)
 	parser.add_argument('--fitness-novelty-weight', type=float, default=0.0)
+	parser.add_argument('--fitness-hpsv2-weight', type=float, default=0.0)
+	parser.add_argument('--fitness-imagereward-weight', type=float, default=0.0)
 	
 	parser.add_argument('--pipeline-dtype', type=str, choices=["fp16", "fp32", "bf16"], default="fp16")
 	parser.add_argument('--device', type=str, default="cuda:0")
@@ -105,52 +110,11 @@ def ffmpeg_make_gif_subprocess(frames: List[Image], frame_dump_path: Path, gif_f
 		print(f"Error invoking ffmpeg:\n{e}\n")
 
 
-def compose_fitness_callables_and_weights(args: argparse.Namespace) -> Tuple[List[Callable], List[float]]:
-	### Fitness Functions
-	fitness_callables = []
-	fitness_weights = []
 
-	if args.fitness_clip_weight > 0.0:
-		fitness_clip_callable = clip_fitness_fn(
-			clip_model_name="openai/clip-vit-large-patch14",
-			prompt=args.fitness_clip_prompt, 
-			cache_dir=args.cache_dir, 
-			device=args.device)
-		fitness_callables.append(fitness_clip_callable)
-		fitness_weights.append(args.fitness_clip_weight)
 
-	if args.fitness_brightness > 0.0:
-		fitness_brightness_callable = brightness()
-		fitness_callables.append(fitness_brightness_callable)
-		fitness_weights.append(args.fitness_brightness)
-
-	if args.fitness_aesthetic_weight > 0.0:
-		aesthetic_fitness_callable = aesthetic_fitness_fn(
-			prompt=["a picture of a dog"], 
-			cache_dir=args.cache_dir, 
-			device=args.device)
-		fitness_callables.append(aesthetic_fitness_callable)
-		fitness_weights.append(args.fitness_aesthetic_weight)
-
-	if args.fitness_pick_weight > 0.0:
-		pickscore_fitness_callable = pickscore_fitness_fn(
-			prompt=["a picture of a dog"], 
-			cache_dir=args.cache_dir, 
-			device=args.device)
-		fitness_callables.append(pickscore_fitness_callable)
-		fitness_weights.append(args.fitness_pick_weight)
-
-	if args.fitness_novelty_weight > 0.0:
-		novelty_fitness_callable = Novelty(
-			prompt=["a picture of a dog"], 
-			cache_dir=args.cache_dir, 
-			device=args.device)
-		fitness_callables.append(novelty_fitness_callable)
-		fitness_weights.append(args.fitness_novelty_weight)
-
-	assert(len(fitness_callables) > 0)
-
-	return fitness_callables, fitness_weights
+def measure_torch_device_memory_used_mb(device: torch.device) -> float:
+	free, total = torch.cuda.mem_get_info(device)
+	return (total - free) / 1024 ** 2
 
 
 ### Iteratively sample and search for a noise vector solution
@@ -159,22 +123,26 @@ def diffusion_solve_and_sample(
 		solver: CMAES, 
 		sample_callable: Callable, 
 		transform_callable: Callable, 
-		total_fitness_callable: Callable
+		total_fitness_callable: Callable,
+		fitness_goal: float = 30.0,
 	) -> Tuple[torch.Tensor, pandas.DataFrame]:
-	
 	### Get the frames as a single tensor of empty elements
 	sampled_frames = torch.empty(
 		(1 + args.sample_count, 3, 512, 512), 
 		dtype=args.pipeline_dtype, 
-		device=args.device
+		device="cpu"
 	)
+
 	### Latency Report
-	latency_report_dict = {}
-	latency_report_columns = ["Sample Index", "Sample Time (ms)", "Solve Time (ms)", "Total Fitness"]
+	perf_report_dict = {}
+	perf_report_columns = ["Sample Index", "Elapsed Wall Time(s)", f"Total Fitness (Goal={fitness_goal:.2f})", "PyTorch Memory Usage (MB)"]
+
+	### Begin timing
+	start_time = time.time()
 
 	### Get the initial image
-	sampled_frames[0] = sample_callable()
-	latency_report_dict[0] = [0, 0, 0, total_fitness_callable(sampled_frames[0:1]).item()]
+	sampled_frames[0] = sample_callable().to("cpu")
+	perf_report_dict[0] = [0, time.time() - start_time, total_fitness_callable(sampled_frames[0:1]).item(), measure_torch_device_memory_used_mb(args.device)]
 
 	### TQDM?
 	progress_bar = tqdm(range(args.sample_count))
@@ -182,43 +150,31 @@ def diffusion_solve_and_sample(
 	### Solve for updated noise, and resample
 	for step in progress_bar:
 		### Solve for updated noise
-		start_solve_time = torch.cuda.Event(enable_timing=True)
-		end_solve_time = torch.cuda.Event(enable_timing=True)
-		start_solve_time.record()
-
 		solver.step()
-
-		end_solve_time.record()
-		torch.cuda.synchronize()
-		solve_time = start_solve_time.elapsed_time(end_solve_time)
 
 		best_candidate_index = solver.population.argbest()
 		### Identify best candidate noise transformation vector
 		x = solver.population[best_candidate_index].values
 
-		### Apply transformation
-		start_transform_time = torch.cuda.Event(enable_timing=True)
-		end_transform_time = torch.cuda.Event(enable_timing=True)
-		start_transform_time.record()
-
-		sampled_frames[1 + step] = transform_callable(x)
-
-		end_transform_time.record()
-		torch.cuda.synchronize()
-		transform_and_sample_time = start_transform_time.elapsed_time(end_transform_time)
+		### Store on CPU
+		sampled_frames[1 + step] = transform_callable(x).to("cpu")
 
 		### Report fitness (slice in a way to ensure the 0th dimension is preserved)
 		total_fitness = total_fitness_callable(sampled_frames[1 + step:1 + step + 1]).item()
 
 		### Update dict
-		latency_report_dict[1 + step] = [1 + step, float(transform_and_sample_time), float(solve_time), float(total_fitness)]
+		perf_report_dict[1 + step] = [1 + step, time.time() - start_time, float(total_fitness), measure_torch_device_memory_used_mb(args.device)]
+
+	### Done timing, report
+	elapsed_time = time.time() - start_time
+	print(f"Total elapsed time: {elapsed_time:.2f} seconds")
 
 	### Dict to DataFrame
-	latency_report_dataframe = pandas.DataFrame.from_dict(data=latency_report_dict, orient="index", columns=latency_report_columns)
-	latency_report_dataframe = latency_report_dataframe.round(2)
+	perf_report_dataframe = pandas.DataFrame.from_dict(data=perf_report_dict, orient="index", columns=perf_report_columns)
+	perf_report_dataframe = perf_report_dataframe.round(2)
 
 	### Return values
-	return sampled_frames, latency_report_dataframe
+	return sampled_frames, perf_report_dataframe
 
 
 if __name__ == "__main__":
@@ -255,8 +211,7 @@ if __name__ == "__main__":
 	###
 	### Fitness Setup
 	###
-	fitness_callables, fitness_weights = compose_fitness_callables_and_weights(args)
-	total_fitness_callable = compose_fitness_fns(fitness_callables, fitness_weights)
+	total_fitness_callable = compose_fitness_callables_and_weights(args)
 
 	###
 	### Problem and Solver Setup

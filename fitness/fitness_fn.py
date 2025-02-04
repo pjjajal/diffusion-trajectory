@@ -1,17 +1,28 @@
-import numpy as np
 import torch
 import torch.nn as nn
-import os
-from PIL.Image import Image
-from diffusers.utils import pt_to_pil
-from typing import Callable, Literal, Union
-from transformers import CLIPProcessor, CLIPModel, AutoModel, AutoProcessor
-
-from typing import Callable
-from transformers import CLIPProcessor, CLIPModel
+import numpy as np
 import pytorch_lightning as lightning
+from diffusers.utils import pt_to_pil
+from transformers import CLIPProcessor, CLIPModel, AutoModel, AutoProcessor
+import os
+from typing import *
+from PIL.Image import Image
+import argparse
+
+try:
+    import hpsv2
+except ImportError:
+    print(f"HPSv2 not able to be imported, see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison for install")
+
+try:
+    import ImageReward
+except ImportError:
+    print(f"Imagereward not able to be imported, see https://github.com/THUDM/ImageReward/tree/main for install")
 
 
+###
+### Yield callable which computes linear combiantion of fitness scores
+###
 @torch.no_grad()
 def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Callable:
     fitness = lambda img: sum(
@@ -20,6 +31,76 @@ def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Ca
     return fitness
 
 
+###
+### Wrapper that 
+###
+def compose_fitness_callables_and_weights(args: argparse.Namespace) -> Callable:
+	### Fitness Functions
+	fitness_callables = []
+	fitness_weights = []
+
+	if args.fitness_clip_weight > 0.0:
+		fitness_clip_callable = clip_fitness_fn(
+			clip_model_name="openai/clip-vit-large-patch14",
+			prompt=args.fitness_prompt, 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(fitness_clip_callable)
+		fitness_weights.append(args.fitness_clip_weight)
+
+	if args.fitness_brightness > 0.0:
+		fitness_brightness_callable = brightness()
+		fitness_callables.append(fitness_brightness_callable)
+		fitness_weights.append(args.fitness_brightness)
+
+	if args.fitness_aesthetic_weight > 0.0:
+		aesthetic_fitness_callable = aesthetic_fitness_fn(
+			prompt=["a picture of a dog"], 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(aesthetic_fitness_callable)
+		fitness_weights.append(args.fitness_aesthetic_weight)
+
+	if args.fitness_pick_weight > 0.0:
+		pickscore_fitness_callable = pickscore_fitness_fn(
+			prompt=["a picture of a dog"], 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(pickscore_fitness_callable)
+		fitness_weights.append(args.fitness_pick_weight)
+
+	if args.fitness_novelty_weight > 0.0:
+		novelty_fitness_callable = Novelty(
+			prompt=["a picture of a dog"], 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(novelty_fitness_callable)
+		fitness_weights.append(args.fitness_novelty_weight)
+	
+	if args.fitness_hpsv2_weight > 0.0:
+		hpsv2_fitness_callable = hpsv2_fitness_fn(
+			prompt="a picture of a dog", 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(hpsv2_fitness_callable)
+		fitness_weights.append(args.fitness_hpsv2_weight)
+
+	if args.fitness_imagereward_weight > 0.0:
+		imagereward_fitness_callable = imagereward_fitness_fn(
+			prompt=args.fitness_prompt, 
+			cache_dir=args.cache_dir, 
+			device=args.device)
+		fitness_callables.append(imagereward_fitness_callable)
+		fitness_weights.append(args.fitness_imagereward_weight)
+
+	assert(len(fitness_callables) > 0)
+
+	return compose_fitness_fns( fitness_callables, fitness_weights )
+
+
+###
+### CLIP fitness 
+###
 @torch.no_grad()
 def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0, dtype=torch.float32) -> Callable:
     processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
@@ -36,13 +117,6 @@ def clip_fitness_fn(clip_model_name, prompt, cache_dir=None, device=0, dtype=tor
         ).to(device=device)
         outputs = clip_model(**inputs)
         score = outputs[0][0]
-        # print(outputs.logits_per_image)
-        # score = 0
-        # for output in outputs[0]:
-        #     if output['label'] == _prompt[0]:
-        #         score += output['score']
-        #     else:
-        #         score -= output['score']
         return score
 
     return fitness_fn
@@ -115,7 +189,9 @@ def aesthetic_fitness_fn(
     return fitness_fn
 
 
+###
 ### See https://huggingface.co/yuvalkirstain/PickScore_v1
+###
 def pickscore_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
 ) -> Callable:
@@ -158,6 +234,46 @@ def pickscore_fitness_fn(
         score = pick_model.logit_scale.exp() * (text_embeddings @ image_embeddings.T)[0]
 
         return score
+
+    return fitness_fn
+
+
+###
+### Imagereward (inspired by reading https://arxiv.org/pdf/2501.09732)
+###
+def imagereward_fitness_fn(
+    prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
+) -> Callable:
+    ### Load the model
+    imagereward_model = ImageReward.load("ImageReward-v1.0")
+    imagereward_model.eval().to(device)
+
+    @torch.no_grad()
+    def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
+        if isinstance(img, torch.Tensor):
+            img = pt_to_pil(img)
+
+        ranking, score = imagereward_model.score(img, prompt)
+
+        return score
+
+
+    return fitness_fn
+
+
+###
+### HPSv2 (see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison)
+###
+def hpsv2_fitness_fn(
+    prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
+) -> Callable:
+    
+    @torch.no_grad()
+    def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
+        if isinstance(img, torch.Tensor):
+            img = pt_to_pil(img)
+
+        return hpsv2.score(img, prompt, hps_version="v2.1") 
 
     return fitness_fn
 
