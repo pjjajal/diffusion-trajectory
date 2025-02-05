@@ -14,3 +14,10 @@ ipywidgets
 treescope
 hpsv2
 image-reward
+ml-collections
+absl-py
+inflect
+pydantic
+ipdb
+open_clip_torch
+jupyterlab
