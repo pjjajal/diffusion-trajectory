@@ -20,16 +20,9 @@ from tqdm.contrib.logging import logging_redirect_tqdm
 import pandas
 import time
 
-
-###
-### Loggging and output Handling
-###
 warnings.filterwarnings("ignore")
 
-
-###
 ### Constants, LUTs + Dicts
-###
 str_to_torch_dtype_LUT = {
 	"fp16": torch.float16,
 	"fp32": torch.float32,
@@ -41,6 +34,9 @@ def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description='Benchmarking')
 
 	parser.add_argument('--seed', type=int, default=37)
+
+	parser.add_argument('--benchmark-until-fitness', type=float, default=None, help="Benchmark until the total fitness reaches X")
+	parser.add_argument('--benchmark-until-time', type=float, default=None, help="Benchmark for X seconds, then report the final total fitness")
 
 	parser.add_argument('--prompt', type=str, default="A picture of a dog.")
 	parser.add_argument('--cache-dir', type=str, default=None)
@@ -68,6 +64,10 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument('--gif-dump-fps', type=int, default=2)
 
 	args = parser.parse_args()
+
+	### Validate
+	if args.benchmark_until_fitness is None and args.benchmark_until_time is None:
+		print(f"WARNING: No benchmark mode specified. Defaulting to optimize over --sample-count steps ({args.sample_count}), then stop.")
 
 	### Post-process args
 	### Replace string values with corresponding torch types
@@ -155,22 +155,21 @@ def diffusion_solve_and_sample(
 		solver: CMAES, 
 		sample_callable: Callable, 
 		transform_callable: Callable, 
-		total_fitness_callable: Callable,
-		fitness_goal: float = 30.0,
-	) -> Tuple[torch.Tensor, pandas.DataFrame]:
+		total_fitness_callable: Callable
+	) -> Tuple:
 	### Get the frames as a single tensor of empty elements
-	sampled_frames = torch.empty(
-		(1 + args.sample_count, 3, 512, 512), 
-		dtype=args.pipeline_dtype, 
-		device="cpu"
-	)
+	sampled_frames = []
 
 	### Latency Report
 	perf_report_dict = {}
-	perf_report_columns = ["Sample Index", "Elapsed Wall Time(s)", f"Total Fitness (Goal={fitness_goal:.2f})", "PyTorch Memory Usage (MB)"]
+	perf_report_columns = ["Sample Index", "Elapsed Wall Time(s)", f"Total Fitness", "PyTorch Memory Usage (MB)"]
 
 	### TQDM?
-	progress_bar = tqdm(range(args.sample_count))
+	# progress_bar = tqdm(range(args.sample_count))
+
+	### Step counter, loop condition
+	continue_solving = True
+	step = 0
 
 	### Operate in inference mode
 	with torch.inference_mode():
@@ -178,11 +177,12 @@ def diffusion_solve_and_sample(
 		start_time = time.time()
 
 		### Get the initial image
-		sampled_frames[0] = sample_callable().cpu()
-		perf_report_dict[0] = [0, time.time() - start_time, total_fitness_callable(sampled_frames[0:1]).item(), measure_torch_device_memory_used_mb(args.device)]
+		sampled_frames.append( sample_callable().cpu() )
+		perf_report_dict[0] = [0, time.time() - start_time, total_fitness_callable(sampled_frames[0]).item(), measure_torch_device_memory_used_mb(args.device)]
 
 		### Solve for updated noise, and resample
-		for step in progress_bar:
+		# for step in progress_bar:
+		while continue_solving:
 			### Solve for updated noise
 			solver.step()
 
@@ -191,20 +191,39 @@ def diffusion_solve_and_sample(
 			x = solver.population[best_candidate_index].values
 
 			### Store on CPU
-			sampled_frames[1 + step] = transform_callable(x).cpu()
+			sampled_frames.append( transform_callable(x).cpu() )
 
 			### Report fitness (slice in a way to ensure the 0th dimension is preserved)
-			total_fitness = total_fitness_callable(sampled_frames[1 + step:1 + step + 1]).item()
+			total_fitness = total_fitness_callable(sampled_frames[1 + step]).item()
 
 			### Update dict
 			perf_report_dict[1 + step] = [1 + step, time.time() - start_time, float(total_fitness), measure_torch_device_memory_used_mb(args.device)]
+
+			### Info
+			print(f"Step {step}: Best Total Fitness={total_fitness:.1f} | Total Elapsed Time(s): {perf_report_dict[1 + step][1]:.1f}")
+
+			### Increment step
+			step += 1
+
+			### Evaluate exit condition
+			if args.benchmark_until_fitness is not None:
+				continue_solving = continue_solving and total_fitness < args.benchmark_until_fitness 
+			elif args.benchmark_until_time is not None:
+				continue_solving = continue_solving and perf_report_dict[step][1] < args.benchmark_until_time
+			else:
+				continue_solving = continue_solving and step < args.sample_count
+	
 
 	### Dict to DataFrame
 	perf_report_dataframe = pandas.DataFrame.from_dict(data=perf_report_dict, orient="index", columns=perf_report_columns)
 	perf_report_dataframe = perf_report_dataframe.round(2)
 
+	### Convert List of Tensor to Tensor
+	sampled_frames_tensor = torch.stack(sampled_frames).squeeze(1)
+	print(sampled_frames_tensor.shape)
+
 	### Return values
-	return sampled_frames, perf_report_dataframe
+	return sampled_frames_tensor, perf_report_dataframe
 
 
 if __name__ == "__main__":
