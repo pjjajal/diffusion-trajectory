@@ -16,7 +16,10 @@ import numpy as np
 
 
 # Local Model Path: Change to the model path to your own model path
-CLIP_PATH = '/mnt/workspace/workgroup/tangzhiwei.tzw/clip-vit-large-patch14'
+### MODIFIED
+# CLIP_PATH = '/mnt/workspace/workgroup/tangzhiwei.tzw/clip-vit-large-patch14'
+CLIP_PATH = "openai/clip-vit-large-patch14"
+
 AESTHETIC_PATH = '/mnt/workspace/workgroup/tangzhiwei.tzw/reward_optimization/reward_opt/assets/sac+logos+ava1-l14-linearMSE.pth'
 HPS_V2_PATH = "/mnt/workspace/workgroup/tangzhiwei.tzw/HPS_v2_compressed.pt"
 PICK_SCORE_PATH = "/mnt/workspace/workgroup/tangzhiwei.tzw/pickscore"

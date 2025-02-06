@@ -1,5 +1,5 @@
 import torch
-from diffusers import StableDiffusionPipeline, DDIMScheduler
+from diffusers import StableDiffusionPipeline, DDIMScheduler, DiffusionPipeline
 import argparse
 import torch.utils.checkpoint as checkpoint
 import os
@@ -10,12 +10,13 @@ from torch import autocast
 ### MODIFIED, torch.cuda.amp is deprecated, use torch.amp 
 from torch.amp import GradScaler
 ### MODIFIED
-# from dno.rewards import RFUNCTIONS
-from fitness.fitness_fn import *
+from dno.rewards import RFUNCTIONS
+# from fitness.fitness_fn import *
 import numpy as np
 import json
+import warnings
 
-
+warnings.filterwarnings("ignore")
 
 # sampling algorithm
 class SequentialDDIM:
@@ -213,7 +214,6 @@ def compute_probability_regularization(noise_vectors, eta, opt_time, subsample, 
 
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description='Diffusion Optimization with Differentiable Objective')
-	parser.add_argument('--model', type=str, default="runwayml/stable-diffusion-v1-5", help='path to the SD v1.5 model')
 	parser.add_argument('--prompt', type=str, default="white duck", help='prompt for the optimization')
 	parser.add_argument('--num-steps', type=int, default=50, help='number of steps for optimization')
 	parser.add_argument('--eta', type=float, default=1.0, help='eta for the DDIM algorithm, eta=0 is ODE-based sampling while eta>0 is SDE-based sampling')
@@ -228,6 +228,9 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument('--subsample', type=int, default=1, help='subsample factor for the computing the probability regularization')
 	parser.add_argument('--lr', type=float, default=0.01, help='stepsize for optimization')
 	parser.add_argument('--output', type=str, default="output", help='output path')
+	### MODIFIED
+	parser.add_argument('--cache-dir', type=str, default=None)
+
 	args = parser.parse_args()
 	return args
 
@@ -236,8 +239,18 @@ if __name__ == "__main__":
 	args = parse_args()
 
 	# load model
-	pipeline = StableDiffusionPipeline.from_pretrained(args.model).to(device = args.device)
-		
+	model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+	# model_id = "runwayml/stable-diffusion-v1-5"
+	### MODIFIED
+	pipeline = StableDiffusionPipeline.from_pretrained(model_id).to(device=args.device)
+	# model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+	# pipeline = DiffusionPipeline.from_pretrained(
+	# 	model_id,
+	# 	use_safetensors=True,
+	# 	cache_dir=args.cache_dir,
+	# ).to(args.device)
+
+
 	# freeze parameters of models to save more memory
 	pipeline.vae.requires_grad_(False)
 	pipeline.text_encoder.requires_grad_(False)
@@ -250,9 +263,14 @@ if __name__ == "__main__":
 	unet = pipeline.unet
 
 	# load the loss function, which is negative of the reward fucntion
+	loss_fn = RFUNCTIONS[args.objective](inference_dtype = torch.float32, device = args.device)
 	### MODIFIED
-	# loss_fn = RFUNCTIONS[args.objective](inference_dtype = torch.float32, device = args.device)
-	loss_fn = clip_fitness_fn(clip_model_name="openai/clip-vit-large-patch14", device=args.device)
+	# loss_fn = clip_fitness_fn_grad_dno(
+	# 	clip_model_name="openai/clip-vit-large-patch14",
+	# 	prompt=args.prompt,
+	# 	cache_dir=args.cache_dir, 
+	# 	device=args.device
+	# )
 
 	torch.manual_seed(args.seed)
 	noise_vectors = torch.randn(args.num_steps + 1, 4, 64, 64, device = args.device)
@@ -298,8 +316,10 @@ if __name__ == "__main__":
 			sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
 			sample = decode_latent(pipeline.vae, sample)
 			
-
 			losses = loss_fn(sample, [args.prompt] * sample.shape[0])
+			### MODIFIED
+			# losses = loss_fn(sample)
+
 			loss = losses.mean()
 
 			reward = -loss.item()

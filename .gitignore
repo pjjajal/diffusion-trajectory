@@ -170,5 +170,7 @@ frames/
 *.csv
 
 wandb/
+output/
+dno/output/
 
 !requirements.txt
