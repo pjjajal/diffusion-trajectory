@@ -19,6 +19,7 @@ from tqdm.auto import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 import pandas
 import time
+import wandb
 
 warnings.filterwarnings("ignore")
 
@@ -61,6 +62,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument('--device', type=str, default="cuda:0")
 	parser.add_argument('--batch-size', type=int, default=1)
 
+	parser.add_argument('--gif-dump', action="store_true", default=True)
 	parser.add_argument('--gif-dump-fps', type=int, default=2)
 
 	args = parser.parse_args()
@@ -145,8 +147,11 @@ def compose_fitness_callables_and_weights(args: argparse.Namespace) -> Callable:
 
 
 def measure_torch_device_memory_used_mb(device: torch.device) -> float:
-	free, total = torch.cuda.mem_get_info(device)
-	return (total - free) / 1024 ** 2
+	if device.type == "cuda":
+		free, total = torch.cuda.mem_get_info(device)
+		return (total - free) / 1024 ** 2
+	else:
+		return -1.0
 
 
 ### Iteratively sample and search for a noise vector solution
@@ -161,15 +166,15 @@ def diffusion_solve_and_sample(
 	sampled_frames = []
 
 	### Latency Report
-	perf_report_dict = {}
-	perf_report_columns = ["Sample Index", "Elapsed Wall Time(s)", f"Total Fitness", "PyTorch Memory Usage (MB)"]
+	# perf_report_dict = {}
+	# perf_report_columns = ["Sample Index", "Elapsed Wall Time(s)", f"Total Fitness", "PyTorch Memory Usage (MB)"]
 
 	### TQDM?
 	# progress_bar = tqdm(range(args.sample_count))
 
 	### Step counter, loop condition
 	continue_solving = True
-	step = 0
+	step = 1
 
 	### Operate in inference mode
 	with torch.inference_mode():
@@ -178,7 +183,7 @@ def diffusion_solve_and_sample(
 
 		### Get the initial image
 		sampled_frames.append( sample_callable().cpu() )
-		perf_report_dict[0] = [0, time.time() - start_time, total_fitness_callable(sampled_frames[0]).item(), measure_torch_device_memory_used_mb(args.device)]
+		# perf_report_dict[0] = [0, time.time() - start_time, total_fitness_callable(sampled_frames[0]).item(), measure_torch_device_memory_used_mb(args.device)]
 
 		### Solve for updated noise, and resample
 		# for step in progress_bar:
@@ -186,21 +191,25 @@ def diffusion_solve_and_sample(
 			### Solve for updated noise
 			solver.step()
 
-			best_candidate_index = solver.population.argbest()
 			### Identify best candidate noise transformation vector
+			best_candidate_index = solver.population.argbest()
 			x = solver.population[best_candidate_index].values
 
 			### Store on CPU
 			sampled_frames.append( transform_callable(x).cpu() )
 
 			### Report fitness (slice in a way to ensure the 0th dimension is preserved)
-			total_fitness = total_fitness_callable(sampled_frames[1 + step]).item()
+			total_fitness = total_fitness_callable(sampled_frames[step]).item()
 
-			### Update dict
-			perf_report_dict[1 + step] = [1 + step, time.time() - start_time, float(total_fitness), measure_torch_device_memory_used_mb(args.device)]
+			solver_running_wall_time = time.time() - start_time
 
-			### Info
-			print(f"Step {step}: Best Total Fitness={total_fitness:.1f} | Total Elapsed Time(s): {perf_report_dict[1 + step][1]:.1f}")
+			wandb.log({
+					"Step": step,
+					"Total Fitness": total_fitness, 
+					"Elapsed Wall Time(s)": solver_running_wall_time, 
+					"GPU Memory In-Use(MB)": measure_torch_device_memory_used_mb(args.device),
+					"Sampled Image": wandb.Image(sampled_frames[step].squeeze(0).permute(1, 2, 0)),
+			})
 
 			### Increment step
 			step += 1
@@ -209,14 +218,14 @@ def diffusion_solve_and_sample(
 			if args.benchmark_until_fitness is not None:
 				continue_solving = continue_solving and total_fitness < args.benchmark_until_fitness 
 			elif args.benchmark_until_time is not None:
-				continue_solving = continue_solving and perf_report_dict[step][1] < args.benchmark_until_time
+				continue_solving = continue_solving and solver_running_wall_time < args.benchmark_until_time
 			else:
 				continue_solving = continue_solving and step < args.sample_count
 	
-
 	### Dict to DataFrame
-	perf_report_dataframe = pandas.DataFrame.from_dict(data=perf_report_dict, orient="index", columns=perf_report_columns)
-	perf_report_dataframe = perf_report_dataframe.round(2)
+	# perf_report_dataframe = pandas.DataFrame.from_dict(data=perf_report_dict, orient="index", columns=perf_report_columns)
+	# perf_report_dataframe = perf_report_dataframe.round(2)
+	perf_report_dataframe = None
 
 	### Convert List of Tensor to Tensor
 	sampled_frames_tensor = torch.stack(sampled_frames).squeeze(1)
@@ -233,6 +242,37 @@ if __name__ == "__main__":
 	### Set seed
 	torch_rng = torch.Generator(args.device).manual_seed(args.seed)
 	np.random.seed(args.seed)
+
+	### Wandb Init
+	wandb.init(
+		project="inference-diffusion-noise-optim",
+		config={
+			"seed": args.seed,
+			"benchmark_until_fitness": args.benchmark_until_fitness,
+			"benchmark_until_time": args.benchmark_until_time,
+			"prompt": args.prompt,
+			"cache_dir": args.cache_dir,
+			"denoising_steps": args.denoising_steps,
+			"sample_count": args.sample_count,
+			"guidance_scale": args.guidance_scale,
+			"solver_splits": args.solver_splits,
+			"mean_scale": args.mean_scale,
+			"fitness_optim_objective": args.fitness_optim_objective,
+			"fitness_clip_weight": args.fitness_clip_weight,
+			"fitness_prompt": args.fitness_prompt,
+			"fitness_brightness": args.fitness_brightness,
+			"fitness_aesthetic_weight": args.fitness_aesthetic_weight,
+			"fitness_pick_weight": args.fitness_pick_weight,
+			"fitness_novelty_weight": args.fitness_novelty_weight,
+			"fitness_hpsv2_weight": args.fitness_hpsv2_weight,
+			"fitness_imagereward_weight": args.fitness_imagereward_weight,
+			"pipeline_dtype": str(args.pipeline_dtype),
+			"device": str(args.device),
+			"gpu": torch.cuda.get_device_name(args.device) if args.device.type == "cuda" else "N/A",
+			"batch_size": args.batch_size,
+			"gif_dump_fps": args.gif_dump_fps
+		}
+	)
 
 	###
 	### Diffusion Pipeline Setup
@@ -287,19 +327,18 @@ if __name__ == "__main__":
 	### Benchmarking!
 	sampled_frames_tensor, latency_report_dataframe = diffusion_solve_and_sample(args, solver, diffusion_sampler_callable, objective_transform_callable, total_fitness_callable)
 
-	### Convert `sampled_frames` Tensor to PIL Image list
-	sampled_frames_image_list = pt_to_pil(sampled_frames_tensor)
+	### Cleanup time
+	if args.gif_dump:
+		sampled_frames_image_list = pt_to_pil(sampled_frames_tensor)
+		frame_dump_path = Path("frames")
+		frame_dump_path.mkdir(parents=True, exist_ok=True)
+		export_to_gif(sampled_frames_image_list, frame_dump_path / "animation.gif", fps=args.gif_dump_fps)
 
-	### Sanitize paths
-	frame_dump_path = Path("frames")
-	frame_dump_path.mkdir(parents=True, exist_ok=True)
-
-	### Dump frames, GIF
-	export_to_gif(sampled_frames_image_list, frame_dump_path / "animation.gif", fps=args.gif_dump_fps)
+	wandb.finish()
 
 	### Dump solver report, latency
-	report_path = "report.csv"
-	latency_report_dataframe.to_csv(report_path, index=False)
-	print(f"Report dumped to: {report_path}")
+	# report_path = "report.csv"
+	# latency_report_dataframe.to_csv(report_path, index=False)
+	# print(f"Report dumped to: {report_path}")
 
-	print(f"Done!")
+	exit(0)

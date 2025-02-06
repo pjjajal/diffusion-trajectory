@@ -169,4 +169,6 @@ frames/
 *.txt
 *.csv
 
+wandb/
+
 !requirements.txt

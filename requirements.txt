@@ -21,3 +21,4 @@ pydantic
 ipdb
 open_clip_torch
 jupyterlab
+wandb[media]
