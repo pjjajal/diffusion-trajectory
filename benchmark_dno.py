@@ -1,5 +1,6 @@
 import torch
 from diffusers import StableDiffusionPipeline, DDIMScheduler, DiffusionPipeline
+from diffusers.utils import pt_to_pil, numpy_to_pil
 import argparse
 import torch.utils.checkpoint as checkpoint
 import os
@@ -9,9 +10,8 @@ import time
 from torch import autocast
 ### MODIFIED, torch.cuda.amp is deprecated, use torch.amp 
 from torch.amp import GradScaler
-### MODIFIED
 from dno.rewards import RFUNCTIONS
-# from fitness.fitness_fn import *
+from fitness.fitness_fn import handle_input
 import numpy as np
 import json
 import warnings
@@ -239,16 +239,14 @@ if __name__ == "__main__":
 	args = parse_args()
 
 	# load model
-	model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
-	# model_id = "runwayml/stable-diffusion-v1-5"
 	### MODIFIED
-	pipeline = StableDiffusionPipeline.from_pretrained(model_id).to(device=args.device)
-	# model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
-	# pipeline = DiffusionPipeline.from_pretrained(
-	# 	model_id,
-	# 	use_safetensors=True,
-	# 	cache_dir=args.cache_dir,
-	# ).to(args.device)
+	model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+	# pipeline = StableDiffusionPipeline.from_pretrained(model_id).to(device=args.device)
+	pipeline = DiffusionPipeline.from_pretrained(
+		model_id,
+		use_safetensors=True,
+		cache_dir=args.cache_dir,
+	).to(args.device)
 
 
 	# freeze parameters of models to save more memory
