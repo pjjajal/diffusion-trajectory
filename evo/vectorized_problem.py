@@ -48,18 +48,11 @@ class VectorizedProblem(Problem):
             vectorized=vectorized,
         )
         self.initialization = initialization
-        if initialization is not None:
-            assert len(initialization) == solution_length, "initialization must have the same length as solution_length"
         self.splits = splits
 
     def _fill(self, values):
         if self.initialization is not None:
-            for i in range(len(self.initialization)):
-                if self.initialization[i] is tuple:
-                    values[:, i].uniform(*self.initialization[i])
-                else:
-                    values[:, i] = self.initialization[i]
-            print(values)
+            values = self.initialization(values)
             return values
         return super()._fill(values)
 

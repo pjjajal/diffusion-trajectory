@@ -255,14 +255,14 @@ def imagereward_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
 ) -> Callable:
     ### Load the model
-    imagereward_model = ImageReward.load("ImageReward-v1.0")
-    imagereward_model.eval().to(device)
+    imagereward_model = ImageReward.load("ImageReward-v1.0", device=device)
+    imagereward_model = imagereward_model.eval()
     
     @torch.inference_mode()
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         img = handle_input(img)
-        ranking, score = imagereward_model.score(img, prompt)
-        return score
+        rewards = imagereward_model.score(prompt, img)
+        return torch.Tensor([rewards])
 
     return fitness_fn
 

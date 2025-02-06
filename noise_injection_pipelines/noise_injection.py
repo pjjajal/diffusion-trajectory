@@ -24,6 +24,7 @@ def rotational_transform(
     )
 
     def _inner_fn(x):
+        device = centroid.device
         x = x.reshape(-1, c + c**2)
         # slice out the mean and covariance matrix
         mean = x[:, :c]
@@ -31,8 +32,8 @@ def rotational_transform(
         # QR decomposition to get the rotation matrix.
         rot, scaling = torch.linalg.qr(cov)
         # unsqueeze so that we can broadcast the mean and rotation matrix to the correct shape.
-        mean = mean.to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
-        rot = rot.to(device, dtype=dtype)
+        mean = torch.Tensor(mean).to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+        rot = torch.Tensor(rot).to(device, dtype=dtype)
 
         # rotate, translate and find the difference between the original and the rotated + translated version.
         x = einsum(centroid, rot, "b c h w, p c1 c -> p c1 h w")
@@ -42,7 +43,17 @@ def rotational_transform(
 
     def _fitness(x):
         samples = _inner_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) if isinstance(sample_fn, DiffusionSample) else fitness_fn(sample) for sample in samples], dim=0)
+        return torch.cat(
+            [
+                (
+                    fitness_fn(sample.unsqueeze(0))
+                    if isinstance(sample_fn, DiffusionSample)
+                    else fitness_fn(sample)
+                )
+                for sample in samples
+            ],
+            dim=0,
+        )
 
     return _fitness, _inner_fn, centroid, solution_length
 
@@ -82,6 +93,7 @@ def svd_rot_transform(
         # rotate, translate and find the difference between the original and the rotated + translated version.
         x = einsum(centroid, rot, "b c h w, p c1 c -> p c1 h w")
         x = x + mean_scale * mean - centroid
+        print(x.norm(dim=1))
         samples = sample_fn(x)
         return samples
 
@@ -290,41 +302,74 @@ def rotational_transform_inject_multiple(
     return _fitness, _inner_fn, centroid, solution_length
 
 
-# this one does not work at all, do not try to use it.
-def rotational_transform_all(
+# # this one does not work at all, do not try to use it.
+# def rotational_transform_all(
+#     sample_fn,
+#     fitness_fn,
+#     latent_shape,
+#     device,
+#     center=None,
+#     mean_scale=1,
+#     dtype=torch.float32,
+# ):
+#     b, c, h, w = latent_shape
+#     # this is equal to the mean and a covariance matrix, that is [c] and [c, c] respectively.
+#     # thus we must apply the transformation to the channel dimension of the latent space.
+#     solution_length = (c + c**2) * h * w
+#     centroid = (
+#         center
+#         if center is not None
+#         else torch.zeros((b, c, h, w)).to(dtype=dtype, device=device)
+#     )
+
+#     def _fitness(x):
+#         x = x.reshape(-1, c + c**2, h, w)
+#         # slice out the mean and covariance matrix
+#         mean = x[:, :c, :, :]
+#         cov = x[:, c:, :, :].reshape(-1, c, c, h, w)
+#         # QR decomposition to get the rotation matrix.
+#         rot, scaling = torch.linalg.qr(cov)
+#         # unsqueeze so that we can broadcast the mean and rotation matrix to the correct shape.
+#         mean = mean.to(dtype=dtype)
+#         rot = rot.to(dtype=dtype)
+#         rot = rot.permute(0, 3, 4, 1, 2)
+#         # # rotate, translate and find the difference between the original and the rotated + translated version.
+#         x = einsum(rot, centroid, "p ... c1 c, b c h w  -> p c1 h w")
+#         x = x + mean_scale * mean - centroid
+#         samples = sample_fn(x)
+#         return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+
+#     return _fitness, centroid, solution_length
+
+def noise(
     sample_fn,
     fitness_fn,
     latent_shape,
     device,
-    center=None,
-    mean_scale=1,
     dtype=torch.float32,
 ):
     b, c, h, w = latent_shape
+    centroid = None
     # this is equal to the mean and a covariance matrix, that is [c] and [c, c] respectively.
     # thus we must apply the transformation to the channel dimension of the latent space.
-    solution_length = (c + c**2) * h * w
-    centroid = (
-        center
-        if center is not None
-        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=device)
-    )
+    solution_length = c * h * w
+    def _inner_fn(x):
+        x = x.reshape(-1, c, h, w).to(device, dtype=dtype)
+        samples = sample_fn(x)
+        return samples
 
     def _fitness(x):
-        x = x.reshape(-1, c + c**2, h, w)
-        # slice out the mean and covariance matrix
-        mean = x[:, :c, :, :]
-        cov = x[:, c:, :, :].reshape(-1, c, c, h, w)
-        # QR decomposition to get the rotation matrix.
-        rot, scaling = torch.linalg.qr(cov)
-        # unsqueeze so that we can broadcast the mean and rotation matrix to the correct shape.
-        mean = mean.to(dtype=dtype)
-        rot = rot.to(dtype=dtype)
-        rot = rot.permute(0, 3, 4, 1, 2)
-        # # rotate, translate and find the difference between the original and the rotated + translated version.
-        x = einsum(rot, centroid, "p ... c1 c, b c h w  -> p c1 h w")
-        x = x + mean_scale * mean - centroid
-        samples = sample_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+        samples = _inner_fn(x)
+        return torch.cat(
+            [
+                (
+                    fitness_fn(sample.unsqueeze(0))
+                    if isinstance(sample_fn, DiffusionSample)
+                    else fitness_fn(sample)
+                )
+                for sample in samples
+            ],
+            dim=0,
+        )
 
-    return _fitness, centroid, solution_length
+    return _fitness, _inner_fn, centroid, solution_length
