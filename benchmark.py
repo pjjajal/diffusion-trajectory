@@ -103,7 +103,6 @@ def compose_fitness_callables_and_weights(args: argparse.Namespace) -> Callable:
 
 	if args.fitness_aesthetic_weight > 0.0:
 		aesthetic_fitness_callable = aesthetic_fitness_fn(
-			prompt=[args.fitness_prompt], 
 			cache_dir=args.cache_dir, 
 			device=args.device)
 		fitness_callables.append(aesthetic_fitness_callable)
@@ -335,10 +334,5 @@ if __name__ == "__main__":
 		export_to_gif(sampled_frames_image_list, frame_dump_path / "animation.gif", fps=args.gif_dump_fps)
 
 	wandb.finish()
-
-	### Dump solver report, latency
-	# report_path = "report.csv"
-	# latency_report_dataframe.to_csv(report_path, index=False)
-	# print(f"Report dumped to: {report_path}")
 
 	exit(0)
