@@ -11,7 +11,7 @@ from torch import autocast
 ### MODIFIED, torch.cuda.amp is deprecated, use torch.amp 
 from torch.amp import GradScaler
 from dno.rewards import RFUNCTIONS
-from fitness.fitness_fn import handle_input
+from fitness.fitness_fn import handle_input, pickscore_fitness_fn, aesthetic_fitness_fn, hpsv2_fitness_fn, imagereward_fitness_fn
 import numpy as np
 import json
 import warnings
@@ -263,8 +263,7 @@ if __name__ == "__main__":
 	# load the loss function, which is negative of the reward fucntion
 	loss_fn = RFUNCTIONS[args.objective](inference_dtype = torch.float32, device = args.device)
 	### MODIFIED
-	# loss_fn = clip_fitness_fn_grad_dno(
-	# 	clip_model_name="openai/clip-vit-large-patch14",
+	# loss_fn = pickscore_fitness_fn(
 	# 	prompt=args.prompt,
 	# 	cache_dir=args.cache_dir, 
 	# 	device=args.device
