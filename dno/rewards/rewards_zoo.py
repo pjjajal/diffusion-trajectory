@@ -11,8 +11,68 @@ from PIL import Image
 import time
 from torch import autocast
 from torch.cuda.amp import GradScaler
-from transformers import CLIPModel, CLIPProcessor, AutoProcessor, AutoModel
+from transformers import CLIPModel, CLIPProcessor, CLIPImageProcessor, AutoProcessor, AutoModel, AutoTokenizer
 import numpy as np
+
+from transformers.image_processing_utils import BaseImageProcessor
+from transformers.image_processing_base import BatchFeature
+from transformers.utils import TensorType
+from torchvision.transforms.functional import center_crop, normalize, resize
+
+###
+### Necessary for DNO to have gradients
+### STOLEN SHAMELESSY FROM https://github.com/huggingface/transformers/issues/21064
+###
+class PickScoreV1CLIPImageProcessorGradientFlow(CLIPImageProcessor):
+	"""
+	This wraps the huggingface CLIP processor to allow backprop through the image processing step.
+	The original processor forces conversion to numpy then PIL images, which is faster for image processing but breaks gradient flow. 
+	"""
+	model_input_names = ["pixel_values"]
+
+	def __init__(
+		self,
+		**kwargs,
+	) -> None:
+		super(BaseImageProcessor).__init__(**kwargs)
+		self.size = {"shortest_edge": 224}
+		self.crop_size = {"height" : 224, "width" : 224}
+		self.image_mean = [0.48145466, 0.4578275, 0.40821073]
+		self.image_std = [0.26862954, 0.26130258, 0.27577711]
+		self._valid_processor_keys = [
+			"images",
+            "size",
+            "crop_size",
+			"image_mean",
+			"image_std",
+		]
+
+	# def __init__(self, device: str = "cuda") -> None:
+	# 	super().__init__()
+	# 	self.device = device
+	# 	self.image_mean = [0.48145466, 0.4578275, 0.40821073]
+	# 	self.image_std = [0.26862954, 0.26130258, 0.27577711]
+	# 	self.normalize = torchvision.transforms.Normalize(
+	# 		self.image_mean,
+	# 		self.image_std
+	# 	)
+	# 	self.resize = torchvision.transforms.Resize(224)
+	# 	self.center_crop = torchvision.transforms.CenterCrop(224)
+		
+	def preprocess(self, images: torch.Tensor, **kwargs) -> BatchFeature:
+		images = center_crop(images, list(self.crop_size.values()))
+		images = (images / 2.0 + 0.5).clamp(0.0, 1.0)
+		images = normalize(images, mean=self.image_mean, std=self.image_std)	
+		data = {"pixel_values": images}
+		return BatchFeature(data=data, tensor_type=TensorType.PYTORCH)
+
+	def __call__(self, images: torch.Tensor, **kwargs) -> BatchFeature:
+		return self.preprocess(images, **kwargs)
+		# processed_inputs = self.processor(**kwargs)
+		# processed_inputs["pixel_values"] = self.preprocess_img(images)
+		# processed_inputs = {key:value.to(self.device) for (key, value) in processed_inputs.items()}
+		# return processed_inputs
+		
 
 
 # Local Model Path: Change to the model path to your own model path
@@ -176,32 +236,43 @@ def hps_loss_fn(inference_dtype=None, device=None):
 def pick_loss_fn(inference_dtype=None, device=None):
     from open_clip import get_tokenizer
 
-    model_name = "ViT-H-14"
     model = AutoModel.from_pretrained(PICK_SCORE_PATH) 
     
-    tokenizer = get_tokenizer(model_name)
     model = model.to(device, dtype=inference_dtype)
     model.eval()
+
+   ### Load processor LAION-2B (CLIP-based), and PickScore classifier
+    processor = CLIPProcessor(PickScoreV1CLIPImageProcessorGradientFlow(), AutoTokenizer.from_pretrained(PICK_SCORE_PATH))
 
     target_size =  224
     normalize = torchvision.transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
                                                 std=[0.26862954, 0.26130258, 0.27577711])
-        
-    def loss_fn(im_pix_un, prompts):    
-        im_pix = ((im_pix_un / 2) + 0.5).clamp(0, 1) 
-        x_var = torchvision.transforms.Resize(target_size)(im_pix)
-        x_var = normalize(x_var).to(im_pix.dtype)        
-        caption = tokenizer(prompts)
-        caption = caption.to(device)
-        image_embs = model.get_image_features(x_var)
-        image_embs = image_embs / torch.norm(image_embs, dim=-1, keepdim=True)
-    
-        text_embs = model.get_text_features(caption)
-        text_embs = text_embs / torch.norm(text_embs, dim=-1, keepdim=True)
-        # score
-        scores = model.logit_scale.exp() * (text_embs @ image_embs.T)[0][0]
-        loss = - scores
-        return  loss
+
+    def loss_fn(im_pix_un, prompts):
+        image_inputs = processor(
+            images=im_pix_un,
+            return_tensors="pt",
+            padding=True,
+        ).to(device=device)
+
+        text_inputs = processor(
+            text=prompts,
+            return_tensors="pt",
+            padding=True,
+        ).to(device=device)
+
+        image_embeddings = model.get_image_features(**image_inputs)
+        image_embeddings = image_embeddings / torch.norm(
+            image_embeddings, dim=-1, keepdim=True
+        )
+
+        text_embeddings = model.get_text_features(**text_inputs)
+        text_embeddings = text_embeddings / torch.norm(
+            text_embeddings, dim=-1, keepdim=True
+        )
+
+        score = model.logit_scale.exp() * (text_embeddings @ image_embeddings.T)[0]
+        return  -score
     
     return loss_fn
 

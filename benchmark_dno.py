@@ -11,7 +11,7 @@ from torch import autocast
 ### MODIFIED, torch.cuda.amp is deprecated, use torch.amp 
 from torch.amp import GradScaler
 from dno.rewards import RFUNCTIONS
-from fitness.fitness_fn import handle_input, pickscore_fitness_fn, aesthetic_fitness_fn, hpsv2_fitness_fn, imagereward_fitness_fn
+# from fitness.fitness_fn import handle_input, pickscore_fitness_fn, aesthetic_fitness_fn, hpsv2_fitness_fn, imagereward_fitness_fn
 import numpy as np
 import json
 import warnings

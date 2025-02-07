@@ -26,7 +26,11 @@ except ImportError:
 ###
 ### Type conversion helper 
 ###
-def handle_input(img: torch.Tensor | np.ndarray) -> Image:
+def handle_input(img: torch.Tensor | np.ndarray, norm_tensor: bool = False) -> Image:
+    if norm_tensor and isinstance(img, torch.Tensor):
+        img = (img / 2 + 0.5).clamp(0, 1)
+        img = img.permute(0, 2, 3, 1)
+        return img
     if isinstance(img, torch.Tensor):
         pil_imgs = pt_to_pil(img)
     else:
@@ -140,7 +144,7 @@ def pickscore_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
 ) -> Callable:
     ### Load processor LAION-2B (CLIP-based), and PickScore classifier
-    processor = AutoProcessor.from_pretrained(
+    processor = CLIPProcessor.from_pretrained(
         "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
     )
     pick_model = AutoModel.from_pretrained(
@@ -148,7 +152,7 @@ def pickscore_fitness_fn(
     ).eval().to(device=device)
 
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
-        img = handle_input(img)
+        img = handle_input(img, True)
 
         image_inputs = processor(
             images=img,
@@ -175,12 +179,6 @@ def pickscore_fitness_fn(
         score = pick_model.logit_scale.exp() * (text_embeddings @ image_embeddings.T)[0]
 
         return score
-
-    # dno_grad_friendly_normalize = xforms.Compose([
-    #     xforms.Lambda(lambda x: torch.clamp((x / 2.0) + 0.5, 0.0, 1.0)),
-    #     xforms.Resize(224),
-    #     xforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711]),
-    # ])
 
     return fitness_fn
 
