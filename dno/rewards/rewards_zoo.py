@@ -19,7 +19,7 @@ import numpy as np
 ### MODIFIED
 # CLIP_PATH = '/mnt/workspace/workgroup/tangzhiwei.tzw/clip-vit-large-patch14'
 CLIP_PATH = "openai/clip-vit-large-patch14"
-AESTHETIC_PATH = '/mnt/workspace/workgroup/tangzhiwei.tzw/reward_optimization/reward_opt/assets/sac+logos+ava1-l14-linearMSE.pth'
+AESTHETIC_PATH = 'sac+logos+ava1-l14-linearMSE.pth'
 HPS_V2_PATH = "/mnt/workspace/workgroup/tangzhiwei.tzw/HPS_v2_compressed.pt"
 # PICK_SCORE_PATH = "/mnt/workspace/workgroup/tangzhiwei.tzw/pickscore"
 PICK_SCORE_PATH = "yuvalkirstain/PickScore_v1"
@@ -43,7 +43,6 @@ class MLPDiff(nn.Module):
     def forward(self, embed):
         return self.layers(embed)
 
-# 
 
 class AestheticScorerDiff(torch.nn.Module):
     def __init__(self, dtype):

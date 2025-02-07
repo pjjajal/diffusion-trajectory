@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torchvision import transforms as xforms
 import numpy as np
 from diffusers.utils import pt_to_pil, numpy_to_pil
 import pytorch_lightning as lightning
@@ -112,12 +113,12 @@ def compose_fitness_callables_and_weights(args: argparse.Namespace) -> Callable:
 ### CLIP fitness 
 ###
 def clip_fitness_fn(
-    clip_model_name, prompt, cache_dir=None, device=0, dtype=torch.float32
+    clip_model_name, prompt, cache_dir=None, device: str = "cpu", dtype=torch.float32
 ) -> Callable:
     processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
     clip_model = CLIPModel.from_pretrained(
         clip_model_name, cache_dir=cache_dir, torch_dtype=dtype
-    ).to(device=device)
+    ).eval().to(device=device)
 
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
         pil_imgs = handle_input(img)
@@ -131,33 +132,6 @@ def clip_fitness_fn(
         return score
 
     return fitness_fn
-
-
-### Variant for DNO that does not interfere with gradient computation
-def clip_fitness_fn_grad_dno(
-    clip_model_name, prompt, cache_dir=None, device=0, dtype=torch.float32
-) -> Callable:
-    processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
-    clip_model = CLIPModel.from_pretrained(
-        clip_model_name, cache_dir=cache_dir, torch_dtype=dtype
-    ).to(device=device)
-
-    def fitness_fn(img: torch.Tensor) -> float:
-        inputs = processor(text=[prompt], images=img, return_tensors="pt", padding=True)
-        
-        for key, value in inputs.items():
-            inputs[key] = value.to(device)
-
-        outputs = clip_model(**inputs)
-        logits_per_image = outputs.logits_per_image 
-        score = logits_per_image.cpu().numpy()[0][0]
-        
-        return  score
-
-    return fitness_fn
-
-
-            
 
 
 ### Adapted from https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/simple_inference.py
@@ -194,10 +168,10 @@ def aesthetic_fitness_fn(
 
     ### Load CLIP model
     processor = CLIPProcessor.from_pretrained(
-        "openai/clip-vit-large-patch14-336", cache_dir=cache_dir
+        "openai/clip-vit-large-patch14", cache_dir=cache_dir
     )
     clip_model = CLIPModel.from_pretrained(
-        "openai/clip-vit-large-patch14-336", cache_dir=cache_dir, torch_dtype=dtype
+        "openai/clip-vit-large-patch14", cache_dir=cache_dir, torch_dtype=dtype
     )
     clip_model.eval().to(device=device)
 
@@ -206,7 +180,7 @@ def aesthetic_fitness_fn(
     aesthetic_mlp.load_state_dict(
         torch.load(os.path.join(cache_dir, "sac+logos+ava1-l14-linearMSE.pth"))
     )
-    aesthetic_mlp.eval().to(device=device).to(dtype=dtype)
+    aesthetic_mlp.eval().to(device=device)
 
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
         img = handle_input(img)
@@ -232,12 +206,11 @@ def pickscore_fitness_fn(
 ) -> Callable:
     ### Load processor LAION-2B (CLIP-based), and PickScore classifier
     processor = AutoProcessor.from_pretrained(
-        "laion/CLIP-ViT-H-14-laion2B-s32B-b79K", cache_dir=cache_dir
+        "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
     )
     pick_model = AutoModel.from_pretrained(
         "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
-    )
-    pick_model.eval().to(device=device)
+    ).eval().to(device=device)
 
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
         img = handle_input(img)
@@ -264,9 +237,15 @@ def pickscore_fitness_fn(
             text_embeddings, dim=-1, keepdim=True
         )
 
-        score = pick_model.logit_scale.exp() * (text_embeddings @ image_embeddings.T)[0]
+        score = pick_model.logit_scale.exp() * (text_embeddings @ image_embeddings.T)[0][0]
 
         return score
+
+    # dno_grad_friendly_normalize = xforms.Compose([
+    #     xforms.Lambda(lambda x: torch.clamp((x / 2.0) + 0.5, 0.0, 1.0)),
+    #     xforms.Resize(224),
+    #     xforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711]),
+    # ])
 
     return fitness_fn
 

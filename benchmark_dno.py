@@ -314,7 +314,6 @@ if __name__ == "__main__":
 			sample = decode_latent(pipeline.vae, sample)
 			
 			losses = loss_fn(sample, [args.prompt] * sample.shape[0])
-			### MODIFIED
 			# losses = loss_fn(sample)
 
 			loss = losses.mean()
