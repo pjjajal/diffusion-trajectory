@@ -4,7 +4,7 @@ defaults:
 seed: 0
 
 benchmark:
-  type: "till_time" # ['till_time', 'till_reward', 'for_steps']
+  type: "for_steps" # ['till_time', 'till_reward', 'for_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
   for_steps: 10 # int > 0
@@ -14,20 +14,21 @@ benchmark:
 
 dataset:
   name: "drawbench"
-  cache_dir: null
+  cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
 
 pipeline:
   type: "sdxl" # ["sdxl", "sd3"]
-  model_id: null
-  denoising_steps: 10
+  model_id: "stabilityai/sdxl-turbo"
+  num_inference_steps: 10
   classifier_free_guidance: true
   guidance_scale: 5.0
-  device_map: "auto"
+  device_map: null
   dtype: "float16"
-  cache_dir: null
-  quantize: false
+  cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
   xformers_mem_eff_attn: false
   cpu_offload: false
+  quantize: false
+  device: "cuda"
   quantize_cfg:
     bits: "4bit" # ["4bit", "8bit"]
 
@@ -36,7 +37,7 @@ fitness:
   device: null
   dtype: "float32"
   cache_dir: null
-  problem_splits: 4
+  problem_splits: 1
   fns:
     brightness:
       weight: 1.0
@@ -55,8 +56,8 @@ fitness:
       prompt: null
     novelty:
       weight: 1.0
-      active: false
-      model_name: null
+      active: true
+      model_name: "dino_base"
       top_k: 10
     hpsv2:
       weight: 1.0
@@ -73,11 +74,12 @@ noise_injection:
 
 solver:
   algorithm: "cmaes" # ["cmaes" , "snes"]
+  initial_bounds: [-1, 1]
   cmaes:
     stdev_init: 1.0
     separable: true
-    center_init: "latents" # null | ["latents"]
+    center_init: "null" # null | ["latents"]
     csa_squared: false
   snes:
     stdev_init: 1.0
-    center_init: "latents" # null | ["latents"]
+    center_init: "null" # null | ["latents"]

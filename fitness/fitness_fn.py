@@ -282,8 +282,8 @@ class Novelty:
         elif self.history.shape[0] < self.top_k:
             score = self._compute_score(features, self.history.shape[0])
             self.history = torch.cat([self.history, features])
-            return score
+            return score.unsqueeze(0)
 
         score = self._compute_score(features, self.top_k)
         self.history = torch.cat([self.history, features])
-        return score
+        return score.unsqueeze(0)
