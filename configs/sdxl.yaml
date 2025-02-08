@@ -1,0 +1,83 @@
+defaults:
+  - override hydra/job_logging: none
+
+seed: 0
+
+benchmark:
+  type: "till_time" # ['till_time', 'till_reward', 'for_steps']
+  till_time: 600 # seconds
+  till_reward: 0 # float > 0
+  for_steps: 10 # int > 0
+  wandb:
+    active: true
+    project: "inference-diffusion-noise-optim"
+
+dataset:
+  name: "drawbench"
+  cache_dir: null
+
+pipeline:
+  type: "sdxl" # ["sdxl", "sd3"]
+  model_id: null
+  denoising_steps: 10
+  classifier_free_guidance: true
+  guidance_scale: 5.0
+  device_map: "auto"
+  dtype: "float16"
+  cache_dir: null
+  quantize: false
+  xformers_mem_eff_attn: false
+  cpu_offload: false
+  quantize_cfg:
+    bits: "4bit" # ["4bit", "8bit"]
+
+fitness:
+  objective: "max" # ["max", "min"]
+  device: null
+  dtype: "float32"
+  cache_dir: null
+  problem_splits: 4
+  fns:
+    brightness:
+      weight: 1.0
+      active: false
+    clip:
+      weight: 1.0
+      active: false
+      prompt: null
+      model_name: null
+    aesthetic:
+      weight: 1.0
+      active: false
+    pick:
+      weight: 1.0
+      active: false
+      prompt: null
+    novelty:
+      weight: 1.0
+      active: false
+      model_name: null
+      top_k: 10
+    hpsv2:
+      weight: 1.0
+      active: false
+    imagereward:
+      weight: 1.0
+      active: false
+
+noise_injection:
+  type: "rotational_transform" # ["rotational_transform", "svd_rot_transform", "noise"]
+  add_noise: true
+  mean_scale: 1
+  bound: 0.1
+
+solver:
+  algorithm: "cmaes" # ["cmaes" , "snes"]
+  cmaes:
+    stdev_init: 1.0
+    separable: true
+    center_init: "latents" # null | ["latents"]
+    csa_squared: false
+  snes:
+    stdev_init: 1.0
+    center_init: "latents" # null | ["latents"]

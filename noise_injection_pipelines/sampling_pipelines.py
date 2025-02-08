@@ -16,7 +16,7 @@ class SamplingPipeline(ABC):
         guidance_scale: float = 7.0,
         height: int = 512,
         width: int = 512,
-        generator: torch.Generator = torch.Generator(0),
+        generator: torch.Generator = torch.Generator(),
     ):
         super().__init__()
         self.device = pipeline.device
@@ -52,7 +52,8 @@ class SDXLSamplingPipeline(SamplingPipeline):
         guidance_scale: float = 7,
         height: int = 512,
         width: int = 512,
-        generator: torch.Generator = torch.Generator(0),
+        generator: torch.Generator = torch.Generator(),
+        add_noise: bool = True,
     ):
         super().__init__(
             pipeline,
@@ -64,8 +65,7 @@ class SDXLSamplingPipeline(SamplingPipeline):
             width,
             generator,
         )
-
-        # these embeddings will have
+        self.add_noise = add_noise
         (
             self.prompt_embeds,
             self.negative_prompt_embeds,
@@ -107,6 +107,17 @@ class SDXLSamplingPipeline(SamplingPipeline):
         )
         return latents
 
+    def regenerate_latents(self):
+        self.latents = self.generate_latents()
+
+    def rembed_text(self, prompt):
+        (
+            self.prompt_embeds,
+            self.negative_prompt_embeds,
+            self.pooled_prompt_embeds,
+            self.negative_pooled_prompt_embeds,
+        ) = self.embed_text(prompt)
+
     @torch.inference_mode()
     def __call__(self, noise_injection=None):
         # noise injection happens here
@@ -116,7 +127,7 @@ class SDXLSamplingPipeline(SamplingPipeline):
             # (this gets undone by the .prepare_latents() method of the pipeline)
             # this required otherwise the noise injection will be too large
             noise_injection = noise_injection / self.pipeline.scheduler.init_noise_sigma
-            latents = self.latents + noise_injection
+            latents = latents + noise_injection if self.add_noise else noise_injection
         latents = latents.to(self.device, dtype=self.pipeline.dtype)
         images = self.pipeline(
             height=self.height,
@@ -145,7 +156,7 @@ class SD3SamplingPipeline(SamplingPipeline):
         guidance_scale: float = 7,
         height: int = 512,
         width: int = 512,
-        generator: torch.Generator = torch.Generator(0),
+        generator: torch.Generator = torch.Generator(),
         add_noise: bool = True,
     ):
         super().__init__(
@@ -201,6 +212,17 @@ class SD3SamplingPipeline(SamplingPipeline):
             generator=self.generator,
         )
         return latents
+
+    def regenerate_latents(self):
+        self.latents = self.generate_latents()
+
+    def rembed_text(self, prompt):
+        (
+            self.prompt_embeds,
+            self.negative_prompt_embeds,
+            self.pooled_prompt_embeds,
+            self.negative_pooled_prompt_embeds,
+        ) = self.embed_text(prompt)
 
     @torch.inference_mode()
     def __call__(self, noise_injection=None):

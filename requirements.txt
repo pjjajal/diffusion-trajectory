@@ -24,3 +24,4 @@ jupyterlab
 wandb[media]
 bitsandbytes
 gguf
+hydra-core
