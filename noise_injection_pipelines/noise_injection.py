@@ -8,7 +8,6 @@ def rotational_transform(
     sample_fn,
     fitness_fn,
     latent_shape,
-    device,
     center=None,
     mean_scale=1,
     dtype=torch.float32,
@@ -20,7 +19,7 @@ def rotational_transform(
     centroid = (
         center
         if center is not None
-        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=device)
+        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=sample_fn.device)
     )
 
     def _inner_fn(x):
@@ -62,7 +61,6 @@ def svd_rot_transform(
     sample_fn,
     fitness_fn,
     latent_shape,
-    device,
     center=None,
     mean_scale=1,
     bound=0.05,
@@ -75,10 +73,11 @@ def svd_rot_transform(
     centroid = (
         center
         if center is not None
-        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=device)
+        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=sample_fn.device)
     )
 
     def _inner_fn(x):
+        device = centroid.device
         x = x.reshape(-1, c + c**2)
         # slice out the mean and covariance matrix
         mean = x[:, :c]
@@ -87,13 +86,12 @@ def svd_rot_transform(
         u, s, v = torch.linalg.svd(cov)
         rot = u @ torch.diag_embed(s.clamp((1 - bound), (1 + bound))) @ v.mT
         # unsqueeze so that we can broadcast the mean and rotation matrix to the correct shape.
-        mean = mean.to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
-        rot = rot.to(device, dtype=dtype)
+        mean = torch.Tensor(mean).to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+        rot = torch.Tensor(rot).to(device, dtype=dtype)
 
         # rotate, translate and find the difference between the original and the rotated + translated version.
         x = einsum(centroid, rot, "b c h w, p c1 c -> p c1 h w")
         x = x + mean_scale * mean - centroid
-        print(x.norm(dim=1))
         samples = sample_fn(x)
         return samples
 
