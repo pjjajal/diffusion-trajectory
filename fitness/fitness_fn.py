@@ -1,14 +1,11 @@
 import torch
 import torch.nn as nn
-from torchvision import transforms as xforms
 import numpy as np
 from diffusers.utils import pt_to_pil, numpy_to_pil
-import pytorch_lightning as lightning
-from transformers import CLIPProcessor, CLIPImageProcessor, CLIPModel, AutoModel, AutoProcessor, AutoTokenizer, AutoImageProcessor
+from transformers import CLIPProcessor, CLIPImageProcessor, CLIPModel, AutoModel, AutoProcessor, AutoTokenizer
 from .hf_gradient_processors import as_tensor_gradient_flow_clip_image_processor
 import os
 from typing import *
-import argparse
 from PIL.Image import Image
 
 try:
@@ -78,12 +75,10 @@ def clip_fitness_fn(
 def aesthetic_fitness_fn(
 	cache_dir: str = None, device: str = "cpu", dtype=torch.float32
 ) -> Callable:
-	class AestheticMLP(lightning.LightningModule):
-		def __init__(self, input_size, xcol="emb", ycol="avg_rating"):
+	class AestheticMLP(nn.Module):
+		def __init__(self, input_size: int):
 			super().__init__()
 			self.input_size = input_size
-			self.xcol = xcol
-			self.ycol = ycol
 			self.layers = nn.Sequential(
 				nn.Linear(self.input_size, 1024),
 				nn.Dropout(0.2),
@@ -97,35 +92,41 @@ def aesthetic_fitness_fn(
 
 		def forward(self, x: torch.Tensor) -> torch.Tensor:
 			### Normalize CLIP embedding
-			l2 = torch.norm(x, p=2, dim=-1, keepdim=True)
-			l2[l2 == 0] = 1
+			l2 = torch.linalg.vector_norm(x, dim=-1, keepdim=True)
+			### NEXT LINE MESSES WITH DNO GRADIENT! There are conflicting implementations (some have this, some dont)
+			### Opting to leave it out
+			# l2[l2 == 0] = 1
 			x = x / l2
 			### Apply MLP, return score
 			x = self.layers(x)
 			return x
 
-	### Load CLIP model
-	processor = CLIPProcessor.from_pretrained(
-		"openai/clip-vit-large-patch14", cache_dir=cache_dir
+	### Load CLIP model and processor
+	processor = CLIPProcessor(
+		as_tensor_gradient_flow_clip_image_processor(
+			CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cache_dir)
+		),
+		AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cache_dir)
 	)
+
 	clip_model = CLIPModel.from_pretrained(
 		"openai/clip-vit-large-patch14", cache_dir=cache_dir, torch_dtype=dtype
-	)
-	clip_model.eval().to(device=device)
+	).eval().to(device=device)
 
 	### Load linear classifier
 	aesthetic_mlp = AestheticMLP(768)
 	aesthetic_mlp.load_state_dict(
-		torch.load(os.path.join(cache_dir, "sac+logos+ava1-l14-linearMSE.pth"))
+		torch.load(os.path.join(cache_dir, "sac+logos+ava1-l14-linearMSE.pth")),
+		strict=False,
+		assign=True,
 	)
 	aesthetic_mlp.eval().to(device=device)
 
 	def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
-		img = handle_input(img)
+		img = handle_input(img, skip=True)
 		inputs = processor(
 			images=img,
 			return_tensors="pt",
-			padding=True,
 		).to(device=device)
 
 		clip_image_embeddings = clip_model.get_image_features(**inputs)
@@ -142,10 +143,7 @@ def aesthetic_fitness_fn(
 def pickscore_fitness_fn(
 	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
 ) -> Callable:
-	### Load processor LAION-2B (CLIP-based), and PickScore classifier
-	# processor = CLIPProcessor.from_pretrained(
-	#     "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
-	# )
+	### Load model and processor
 	processor = CLIPProcessor(
 		 as_tensor_gradient_flow_clip_image_processor(
 			 CLIPImageProcessor.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)

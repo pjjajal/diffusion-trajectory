@@ -195,7 +195,8 @@ def diffusion_solve_and_sample(
 			x = solver.population[best_candidate_index].values
 
 			### Store on CPU
-			sampled_frames.append( transform_callable(x).squeeze(0).permute(1, 2, 0).detach().cpu().numpy() )
+			# sampled_frames.append( transform_callable(x).squeeze(0).permute(1, 2, 0).detach().cpu().numpy() )
+			sampled_frames.append( transform_callable(x).cpu() )
 
 			### Report fitness (slice in a way to ensure the 0th dimension is preserved)
 			total_fitness = total_fitness_callable(sampled_frames[step]).item()
@@ -207,7 +208,7 @@ def diffusion_solve_and_sample(
 					"Total Fitness": total_fitness, 
 					"Elapsed Wall Time(s)": solver_running_wall_time, 
 					"GPU Memory In-Use(MB)": measure_torch_device_memory_used_mb(args.device),
-					"Sampled Image": wandb.Image(sampled_frames[step]),
+					"Sampled Image": wandb.Image( sampled_frames[step].squeeze(0).permute(1, 2, 0).numpy() ),
 			})
 
 			### Increment step

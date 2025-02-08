@@ -8,7 +8,7 @@ from transformers.image_processing_base import BatchFeature
 
 ###
 ### Necessary for DNO to have gradients
-### STOLEN SHAMELESSY FROM https://github.com/huggingface/transformers/issues/21064
+### Adapted from commentary https://github.com/huggingface/transformers/issues/21064
 ###
 class CLIPImageProcessorWithTensorGradientFlow(CLIPImageProcessor):
 	"""

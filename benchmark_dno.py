@@ -11,7 +11,7 @@ from torch import autocast
 ### MODIFIED, torch.cuda.amp is deprecated, use torch.amp 
 from torch.amp import GradScaler
 from dno.rewards import RFUNCTIONS
-# from fitness.fitness_fn import handle_input, pickscore_fitness_fn, aesthetic_fitness_fn, hpsv2_fitness_fn, imagereward_fitness_fn
+from fitness import pickscore_fitness_fn, aesthetic_fitness_fn
 import numpy as np
 import json
 import warnings
@@ -261,13 +261,21 @@ if __name__ == "__main__":
 	unet = pipeline.unet
 
 	# load the loss function, which is negative of the reward fucntion
-	loss_fn = RFUNCTIONS[args.objective](inference_dtype = torch.float32, device = args.device)
-	### MODIFIED
-	# loss_fn = pickscore_fitness_fn(
+	# loss_fn = RFUNCTIONS[args.objective](inference_dtype = torch.float32, device = args.device)
+
+	# fitness_callable = pickscore_fitness_fn(
 	# 	prompt=args.prompt,
 	# 	cache_dir=args.cache_dir, 
 	# 	device=args.device
 	# )
+
+	fitness_callable = aesthetic_fitness_fn(
+		cache_dir=args.cache_dir, 
+		device=args.device
+	)
+
+	### Assign the negative of the loss function
+	loss_function = lambda x: torch.mean(-fitness_callable(x))
 
 	torch.manual_seed(args.seed)
 	noise_vectors = torch.randn(args.num_steps + 1, 4, 64, 64, device = args.device)
@@ -313,11 +321,7 @@ if __name__ == "__main__":
 			sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
 			sample = decode_latent(pipeline.vae, sample)
 			
-			losses = loss_fn(sample, [args.prompt] * sample.shape[0])
-			# losses = loss_fn(sample)
-
-			loss = losses.mean()
-
+			loss = loss_function(sample)
 			reward = -loss.item()
 			
 			if args.gamma > 0:
