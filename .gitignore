@@ -172,5 +172,6 @@ frames/
 wandb/
 output/
 dno/output/
+outputs/
 
 !requirements.txt
