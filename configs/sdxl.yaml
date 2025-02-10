@@ -1,10 +1,10 @@
 defaults:
   - override hydra/job_logging: none
 
-seed: 0
+seed: 67
 
 benchmark:
-  type: "for_steps" # ['till_time', 'till_reward', 'for_steps']
+  type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
   for_steps: 10 # int > 0
@@ -19,9 +19,9 @@ dataset:
 pipeline:
   type: "sdxl" # ["sdxl", "sd3"]
   model_id: "stabilityai/sdxl-turbo"
-  num_inference_steps: 10
+  num_inference_steps: 15
   classifier_free_guidance: true
-  guidance_scale: 5.0
+  guidance_scale: 7.5
   device_map: null
   dtype: "float16"
   cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
@@ -44,9 +44,9 @@ fitness:
       active: false
     clip:
       weight: 1.0
-      active: false
+      active: true
       prompt: null
-      model_name: null
+      model_name: "openai/clip-vit-large-patch14"
     aesthetic:
       weight: 1.0
       active: false
@@ -55,7 +55,7 @@ fitness:
       active: false
       prompt: null
     novelty:
-      weight: 1.0
+      weight: 0.1
       active: true
       model_name: "dino_base"
       top_k: 10
@@ -69,7 +69,7 @@ fitness:
 noise_injection:
   type: "rotational_transform" # ["rotational_transform", "svd_rot_transform", "noise"]
   add_noise: true
-  mean_scale: 1
+  mean_scale: 0.1
   bound: 0.1
 
 solver:
