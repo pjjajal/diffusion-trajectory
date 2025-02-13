@@ -48,7 +48,7 @@ def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Ca
 ### CLIP fitness 
 ###
 def clip_fitness_fn(
-	clip_model_name, prompt, cache_dir=None, device: str = "cpu", dtype=torch.float32
+	clip_model_name, prompt, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
 	processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
 	clip_model = CLIPModel.from_pretrained(
@@ -73,7 +73,7 @@ def clip_fitness_fn(
 ### Need to manually download https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/6934dd81792f086e613a121dbce43082cb8be85e/sac%2Blogos%2Bava1-l14-linearMSE.pth to cache_dir/
 ### Adapted for use with Huggingface-hosted CLIP instead of original CLIP package (import clip)
 def aesthetic_fitness_fn(
-	cache_dir: str = None, device: str = "cpu", dtype=torch.float32
+	cache_dir: str = None, device: str = "cpu", dtype=torch.float32, gradient_flow: bool = False, **kwargs
 ) -> Callable:
 	class AestheticMLP(nn.Module):
 		def __init__(self, input_size: int):
@@ -105,7 +105,7 @@ def aesthetic_fitness_fn(
 	processor = CLIPProcessor(
 		as_tensor_gradient_flow_clip_image_processor(
 			CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cache_dir)
-		),
+		) if gradient_flow else CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cache_dir),
 		AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cache_dir)
 	)
 
@@ -127,6 +127,8 @@ def aesthetic_fitness_fn(
 		inputs = processor(
 			images=img,
 			return_tensors="pt",
+			padding=True,
+			do_rescale=False,
 		).to(device=device)
 
 		clip_image_embeddings = clip_model.get_image_features(**inputs)
@@ -141,13 +143,13 @@ def aesthetic_fitness_fn(
 ### See https://huggingface.co/yuvalkirstain/PickScore_v1
 ###
 def pickscore_fitness_fn(
-	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
+	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, gradient_flow: bool = False, **kwargs
 ) -> Callable:
 	### Load model and processor
 	processor = CLIPProcessor(
 		 as_tensor_gradient_flow_clip_image_processor(
 			 CLIPImageProcessor.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)
-		 ),
+		 ) if gradient_flow else CLIPImageProcessor.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir),
 		 AutoTokenizer.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)
 	)
 
@@ -156,7 +158,7 @@ def pickscore_fitness_fn(
 	).eval().to(device=device)
 
 	def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
-		img = handle_input(img, skip=True)
+		img = handle_input(img, skip=gradient_flow)
 
 		image_inputs = processor(
 			images=img,
@@ -191,7 +193,7 @@ def pickscore_fitness_fn(
 ### Imagereward (inspired by reading https://arxiv.org/pdf/2501.09732)
 ###
 def imagereward_fitness_fn(
-	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
+	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
 	### Load the model
 	imagereward_model = ImageReward.load("ImageReward-v1.0", device=device)
@@ -209,7 +211,7 @@ def imagereward_fitness_fn(
 ### HPSv2 (see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison)
 ###
 def hpsv2_fitness_fn(
-	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32
+	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
 	
 	def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
@@ -219,7 +221,7 @@ def hpsv2_fitness_fn(
 	return fitness_fn
 
 
-def brightness(img: torch.Tensor | np.ndarray) -> float:
+def brightness(img: torch.Tensor | np.ndarray, **kwargs) -> float:
 	pil_imgs = handle_input(img)
 	hsv_imgs = [pil_img.convert("HSV") for pil_img in pil_imgs]
 	vs = [np.array(hsv_img.split()[-1]) for hsv_img in hsv_imgs]
@@ -227,7 +229,7 @@ def brightness(img: torch.Tensor | np.ndarray) -> float:
 	return v
 
 
-def relative_luminance(img: torch.Tensor | np.ndarray) -> torch.Tensor:
+def relative_luminance(img: torch.Tensor | np.ndarray, **kwargs) -> torch.Tensor:
 	weights = np.array([0.2126, 0.7152, 0.0722])
 	pil_imgs = handle_input(img)
 	imgs = [np.array(pil_img) * weights for pil_img in pil_imgs]
@@ -271,7 +273,7 @@ class Novelty:
 		top_k, _ = torch.topk(dists, k=top_k, largest=False)
 		return top_k.mean()
 
-	def __call__(self, img: torch.Tensor | np.ndarray) -> torch.Tensor:
+	def __call__(self, img: torch.Tensor | np.ndarray, **kwargs) -> torch.Tensor:
 		pil_imgs = handle_input(img)
 		inputs = self.processor(images=pil_imgs, return_tensors="pt", padding=True).to(
 			device=self.device

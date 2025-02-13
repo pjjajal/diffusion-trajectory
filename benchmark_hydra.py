@@ -172,7 +172,7 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
         )
         weights.append(fitness_cfg.fns.clip.weight)
     if fitness_cfg.fns.aesthetic.active:
-        fitness_fns.append(aesthetic_fitness_fn(cache_dir=cache_dir))
+        fitness_fns.append(aesthetic_fitness_fn(cache_dir=cache_dir)) # ,gradient_flow=False))
         weights.append(fitness_cfg.fns.aesthetic.weight)
     if fitness_cfg.fns.pick.active:
         pickscore_prompt = prompt or fitness_cfg.fns.pick.prompt
@@ -254,6 +254,7 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
             center_init=center_init,
         )
     
+
 def measure_torch_device_memory_used_mb(device: torch.device) -> float:
 	if device.type == "cuda":
 		free, total = torch.cuda.mem_get_info(device)
@@ -261,6 +262,7 @@ def measure_torch_device_memory_used_mb(device: torch.device) -> float:
 	else:
 		return -1.0
     
+
 def wandb_log(solver, step, img, prompt, running_time, device):
     wandb.log({
         "step": step,
@@ -268,7 +270,7 @@ def wandb_log(solver, step, img, prompt, running_time, device):
         "mean_eval": solver.status["mean_eval"],
         "median_eval": solver.status["median_eval"],
         "best_img": wandb.Image(img),
-        "prompt": prompt,
+        "prompt": prompt[0],
         "running_time": running_time,
         "memory" : measure_torch_device_memory_used_mb(device)
     })
