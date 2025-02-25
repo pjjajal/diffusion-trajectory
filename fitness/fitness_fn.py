@@ -216,7 +216,8 @@ def hpsv2_fitness_fn(
 	
 	def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
 		img = handle_input(img)
-		return hpsv2.score(img, prompt, hps_version="v2.0") 
+		score = hpsv2.score(img, prompt, hps_version="v2.0")
+		return torch.Tensor(score)
 
 	return fitness_fn
 

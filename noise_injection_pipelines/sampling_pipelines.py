@@ -4,6 +4,7 @@ import torch
 from diffusers.pipelines import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipeline
 from diffusers.pipelines.stable_diffusion_3 import StableDiffusion3Pipeline
+from einops import einsum 
 
 
 class SamplingPipeline(ABC):
@@ -158,6 +159,7 @@ class SD3SamplingPipeline(SamplingPipeline):
         width: int = 512,
         generator: torch.Generator = torch.Generator(),
         add_noise: bool = True,
+        static_latents: bool = True,
     ):
         super().__init__(
             pipeline,
@@ -170,6 +172,7 @@ class SD3SamplingPipeline(SamplingPipeline):
             generator,
         )
         self.add_noise = add_noise
+        self.static_latents = static_latents
         (
             self.prompt_embeds,
             self.negative_prompt_embeds,
@@ -224,12 +227,19 @@ class SD3SamplingPipeline(SamplingPipeline):
             self.negative_pooled_prompt_embeds,
         ) = self.embed_text(prompt)
 
+    def update_latents(self, latent_update):
+        if not self.static_latents:
+            print('Updating latents')
+            self.latents = latent_update(self.latents)
+
     @torch.inference_mode()
-    def __call__(self, noise_injection=None):
+    def __call__(self, noise_injection=None, noise_transform=None):
         # noise injection happens here
         latents = self.latents
         if noise_injection is not None:
             latents = latents + noise_injection if self.add_noise else noise_injection
+        if noise_transform is not None:
+            latents = noise_transform(latents)
         latents = latents.to(self.device, dtype=self.pipeline.dtype)
         images = self.pipeline(
             height=self.height,

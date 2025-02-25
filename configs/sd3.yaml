@@ -1,7 +1,7 @@
 defaults:
   - override hydra/job_logging: none
 
-seed: 67
+seed: 53435
 
 benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
@@ -23,8 +23,8 @@ dataset:
     - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
 
 pipeline:
-  type: "sdxl" # ["sdxl", "sd3"]
-  model_id: "stabilityai/sdxl-turbo"
+  type: "sd3" # ["sdxl", "sd3"]
+  model_id: "stabilityai/stable-diffusion-3.5-medium"
   num_inference_steps: 15
   classifier_free_guidance: true
   guidance_scale: 4.0
@@ -62,30 +62,31 @@ fitness:
       prompt: null
     novelty:
       weight: 0.1
-      active: false
+      active: true
       model_name: "dino_base"
       top_k: 10
     hpsv2:
       weight: 1.0
-      active: false
+      active: true
     imagereward:
       active: true
       weight: 1.0
 
 noise_injection:
-  type: "svd_rot_transform" # ["rotational_transform", "svd_rot_transform", "noise"]
+  type: "noise" # ["rotational_transform", "svd_rot_transform", "noise"]
   add_noise: false
-  mean_scale: 0.01
-  bound: 0.2
+  static_latents: true
+  mean_scale: 0.001
+  bound: 0.01
 
 solver:
-  algorithm: "snes" # ["cmaes" , "snes"]
+  algorithm: "cmaes" # ["cmaes" , "snes"]
   initial_bounds: [-1, 1]
   cmaes:
-    stdev_init: 10
+    stdev_init: 0.1
     separable: true
-    center_init: "latents" # null | ["latents"]
+    center_init: "latents"  # null | ["latents"]
     csa_squared: true
   snes:
     stdev_init: 1.5
-    center_init: null # null | ["latents"]
+    center_init: "latents" # null | ["latents"]

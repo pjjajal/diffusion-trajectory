@@ -6,6 +6,7 @@ import time
 import warnings
 from pathlib import Path, PosixPath, WindowsPath
 from typing import *
+import os
 
 import hydra
 import numpy as np
@@ -18,7 +19,7 @@ from diffusers import (
     StableDiffusion3Pipeline,
     UNet2DConditionModel,
     SD3Transformer2DModel,
-    # BitsAndBytesConfig as DiffusersBitsAndBytesConfig,
+    BitsAndBytesConfig as DiffusersBitsAndBytesConfig,
 )
 from diffusers.utils import export_to_gif, numpy_to_pil
 from einops import einsum
@@ -43,12 +44,13 @@ from fitness import (
     Novelty,
 )
 from noise_injection_pipelines import (
-	DiffusionSample,
+    DiffusionSample,
     SD3SamplingPipeline,
     SDXLSamplingPipeline,
     rotational_transform,
     svd_rot_transform,
     noise,
+    stateful_svd_rot,
 )
 
 warnings.filterwarnings("ignore")
@@ -76,22 +78,31 @@ def flatten_dict(d: DictConfig):
 def create_pipeline(pipeline_cfg: DictConfig):
     if pipeline_cfg.type == "sdxl":
         unet = None
-        # if pipeline_cfg.quantize:
-        #     load_in_4bit = pipeline_cfg.quantize_cfg.bits == "4bit"
-        #     load_in_8bit = pipeline_cfg.quantize_cfg.bits == "8bit"
-        #     quant_config = DiffusersBitsAndBytesConfig(
-        #         load_in_4bit=load_in_4bit,
-        #         load_in_8bit=load_in_8bit,
-        #     )
-        #     unet = UNet2DConditionModel.from_pretrained(
-        #         pipeline_cfg.model_id,
-        #         subfolder="unet",
-        #         torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
-        #         quant_config=quant_config,
-        #         device_map=pipeline_cfg.device_map,
-        #         cache_dir=pipeline_cfg.cache_dir,
-        #         use_safetensors=True,
-        #     )
+        if pipeline_cfg.quantize:
+            load_in_4bit = pipeline_cfg.quantize_cfg.bits == "4bit"
+            load_in_8bit = pipeline_cfg.quantize_cfg.bits == "8bit"
+            quant_config = DiffusersBitsAndBytesConfig(
+                load_in_4bit=load_in_4bit,
+                load_in_8bit=load_in_8bit,
+            )
+            unet = UNet2DConditionModel.from_pretrained(
+                pipeline_cfg.model_id,
+                subfolder="unet",
+                torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+                quant_config=quant_config,
+                device_map=pipeline_cfg.device_map,
+                cache_dir=pipeline_cfg.cache_dir,
+                use_safetensors=True,
+            )
+            pipeline = StableDiffusionXLPipeline.from_pretrained(
+                pipeline_cfg.model_id,
+                device_map=pipeline_cfg.device_map,
+                torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+                cache_dir=pipeline_cfg.cache_dir,
+                use_safetensors=True,
+                unet=unet
+            ).to(pipeline_cfg.device)
+            return pipeline
         pipeline = StableDiffusionXLPipeline.from_pretrained(
             pipeline_cfg.model_id,
             device_map=pipeline_cfg.device_map,
@@ -101,21 +112,30 @@ def create_pipeline(pipeline_cfg: DictConfig):
         ).to(pipeline_cfg.device)
     elif pipeline_cfg.type == "sd3":
         transformer = None
-        # if pipeline_cfg.quantize:
-        #     load_in_4bit = pipeline_cfg.quantize_cfg.bits == "4bit"
-        #     load_in_8bit = pipeline_cfg.quantize_cfg.bits == "8bit"
-        #     quant_config = DiffusersBitsAndBytesConfig(
-        #         load_in_4bit=load_in_4bit,
-        #         load_in_8bit=load_in_8bit,
-        #     )
-        #     transformer = SD3Transformer2DModel.from_pretrained(
-        #         pipeline_cfg.model_id,
-        #         subfolder="transformer",
-        #         quantization_config=quant_config,
-        #         torch_dtype=torch.float16,
-        #         cache_dir=pipeline_cfg.cache_dir,
-        #         use_safetensors=True,
-        #     )
+        if pipeline_cfg.quantize:
+            load_in_4bit = pipeline_cfg.quantize_cfg.bits == "4bit"
+            load_in_8bit = pipeline_cfg.quantize_cfg.bits == "8bit"
+            quant_config = DiffusersBitsAndBytesConfig(
+                load_in_4bit=load_in_4bit,
+                load_in_8bit=load_in_8bit,
+            )
+            transformer = SD3Transformer2DModel.from_pretrained(
+                pipeline_cfg.model_id,
+                subfolder="transformer",
+                quantization_config=quant_config,
+                torch_dtype=torch.float16,
+                cache_dir=pipeline_cfg.cache_dir,
+                use_safetensors=True,
+            )
+            pipeline = StableDiffusion3Pipeline.from_pretrained(
+                pipeline_cfg.model_id,
+                device_map=pipeline_cfg.device_map,
+                torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+                cache_dir=pipeline_cfg.cache_dir,
+                use_safetensors=True,
+                transformer=transformer,
+            ).to(pipeline_cfg.device)
+            return pipeline
         pipeline = StableDiffusion3Pipeline.from_pretrained(
             pipeline_cfg.model_id,
             device_map=pipeline_cfg.device_map,
@@ -140,6 +160,7 @@ def create_sampler(
             guidance_scale=cfg.pipeline.guidance_scale,
             generator=generator,
             add_noise=cfg.noise_injection.add_noise,
+            static_latents = cfg.noise_injection.static_latents
         )
     elif cfg.pipeline.type == "sd3":
         return SD3SamplingPipeline(
@@ -150,6 +171,7 @@ def create_sampler(
             guidance_scale=cfg.pipeline.guidance_scale,
             generator=generator,
             add_noise=cfg.noise_injection.add_noise,
+            static_latents = cfg.noise_injection.static_latents,
         )
 
 
@@ -168,11 +190,15 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
                 clip_model_name=fitness_cfg.fns.clip.model_name,
                 prompt=clip_prompt,
                 cache_dir=cache_dir,
+                device=fitness_cfg.device,
+                dtype=fitness_cfg.dtype,
             )
         )
         weights.append(fitness_cfg.fns.clip.weight)
     if fitness_cfg.fns.aesthetic.active:
-        fitness_fns.append(aesthetic_fitness_fn(cache_dir=cache_dir)) # ,gradient_flow=False))
+        fitness_fns.append(
+            aesthetic_fitness_fn(cache_dir=cache_dir)
+        )  # ,gradient_flow=False))
         weights.append(fitness_cfg.fns.aesthetic.weight)
     if fitness_cfg.fns.pick.active:
         pickscore_prompt = prompt or fitness_cfg.fns.pick.prompt
@@ -196,6 +222,7 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
     if fitness_cfg.fns.imagereward.active:
         imagereward_prompt = prompt or fitness_cfg.fns.imagereward.prompt
         fitness_fns.append(imagereward_fitness_fn(prompt=imagereward_prompt))
+        weights.append(fitness_cfg.fns.imagereward.weight)
     return compose_fitness_fns(fitness_fns, weights)
 
 
@@ -219,12 +246,22 @@ def create_obj_fn(sample_fn, fitness_fn, cfg: DictConfig):
             bound=cfg.noise_injection.bound,
             dtype=sample_fn.pipeline.dtype,
         )
-    elif cfg.noise_injection_type == "noise":
+    elif cfg.noise_injection.type == "noise":
         obj_fn, inner_fn, centroid, solution_length = noise(
             sample_fn=sample_fn,
             fitness_fn=fitness_fn,
             latent_shape=sample_fn.latents.shape,
             device=sample_fn.pipeline.device,
+            dtype=sample_fn.pipeline.dtype,
+        )
+    elif cfg.noise_injection.type == "stateful_svd_rot_transform":
+        obj_fn, inner_fn, centroid, solution_length = stateful_svd_rot(
+            sample_fn=sample_fn,
+            fitness_fn=fitness_fn,
+            latent_shape=sample_fn.latents.shape,
+            device=sample_fn.pipeline.device,
+            mean_scale=cfg.noise_injection.mean_scale,
+            bound=cfg.noise_injection.bound,
             dtype=sample_fn.pipeline.dtype,
         )
     else:
@@ -253,27 +290,29 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
             stdev_init=solver_cfg.snes.stdev_init,
             center_init=center_init,
         )
-    
+
 
 def measure_torch_device_memory_used_mb(device: torch.device) -> float:
-	if device.type == "cuda":
-		free, total = torch.cuda.mem_get_info(device)
-		return (total - free) / 1024 ** 2
-	else:
-		return -1.0
-    
+    if device.type == "cuda":
+        free, total = torch.cuda.mem_get_info(device)
+        return (total - free) / 1024**2
+    else:
+        return -1.0
+
 
 def wandb_log(solver, step, img, prompt, running_time, device):
-    wandb.log({
-        "step": step,
-        "pop_best_eval": solver.status["pop_best_eval"],
-        "mean_eval": solver.status["mean_eval"],
-        "median_eval": solver.status["median_eval"],
-        "best_img": wandb.Image(img),
-        "prompt": prompt[0],
-        "running_time": running_time,
-        "memory" : measure_torch_device_memory_used_mb(device)
-    })
+    wandb.log(
+        {
+            "step": step,
+            "pop_best_eval": solver.status["pop_best_eval"],
+            "mean_eval": solver.status["mean_eval"],
+            "median_eval": solver.status["median_eval"],
+            "best_img": wandb.Image(img),
+            "prompt": prompt[0],
+            "running_time": running_time,
+            "memory": measure_torch_device_memory_used_mb(device),
+        }
+    )
 
 
 @torch.inference_mode()
@@ -283,23 +322,28 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
 
     frames = []
     # initial image
-    img = numpy_to_pil(sample_fn())[0]
-    if benchmark_cfg.wandb.active:
-        wandb.log({
-            "step": step,
-            "best_img": wandb.Image(img),
-            "prompt": prompt
-        })
-    frames.append(img)
+    # img = numpy_to_pil(sample_fn())[0]
+    # if benchmark_cfg.wandb.active:
+    #     wandb.log({"step": step, "best_img": wandb.Image(img), "prompt": prompt})
+    # frames.append(img)
+
+    # if benchmark_cfg.save_images.active:
+    #     img.save(
+    #         os.path.join(benchmark_cfg.save_images.save_dir, f"{}_baseline.png")
+    #     )
 
     # run benchmark
     while True:
         step += 1
         solver.step()
 
-        pop_best_sol = solver.status['pop_best'].values
+        pop_best_sol = solver.status["pop_best"].values
         img = numpy_to_pil(inner_fn(pop_best_sol))[0]
         frames.append(img)
+
+        if not sample_fn.static_latents:
+            if solver.status['pop_best'].evals.item() >= solver.status['best_eval']:
+                inner_fn(pop_best_sol, update_state=True)
 
         running_time = time.time() - start_time
         if benchmark_cfg.wandb.active:
@@ -314,15 +358,22 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
         elif benchmark_cfg.type == "till_reward":
             if solver.best_eval > benchmark_cfg.till_reward:
                 break
-    
-    wandb_log(solver, step, frames[-1], prompt, running_time, sample_fn.device)
+
+        if benchmark_cfg.save_images.active:
+            img.save(
+                os.path.join(benchmark_cfg.save_images.save_dir, f"{prompt[:10]}_{step}.png")
+            )
+
+    if benchmark_cfg.wandb.active:
+        wandb_log(solver, step, frames[-1], prompt, running_time, sample_fn.device)
+
 
 @hydra.main(config_path="configs")
 def main(cfg: DictConfig):
     # set seeds
-    np.random.seed(cfg.seed)
-    torch.manual_seed(cfg.seed)
-    random.seed(cfg.seed)
+    # np.random.seed(cfg.seed)
+    # torch.manual_seed(cfg.seed)
+    # random.seed(cfg.seed)
 
     # set up wandb
     if cfg.benchmark.wandb.active:
@@ -330,9 +381,19 @@ def main(cfg: DictConfig):
             project=cfg.benchmark.wandb.project,
             config=flatten_dict(cfg),
         )
+    if cfg.benchmark.save_images.active:
+        subdir_name = f"{cfg.pipeline.type}_{time.strftime('%Y-%m-%d_%H-%M-%S')}"
+        save_dir = os.path.join(cfg.benchmark.save_images.save_dir, subdir_name)
+        print(f"Saving images to {save_dir}")
+        os.makedirs(save_dir, exist_ok=True)
+        cfg.benchmark.save_images.save_dir = save_dir
 
     # load eval dataset
-    dataset = eval_datasets.create_dataset(cfg.dataset)
+    if cfg.dataset.name != "custom":
+        dataset = eval_datasets.create_dataset(cfg.dataset)
+    else:
+        dataset_prompts = cfg.dataset.prompts
+        dataset = [{"prompt": prompt} for prompt in dataset_prompts]
 
     # create pipeline
     pipeline = create_pipeline(cfg.pipeline)
@@ -348,7 +409,12 @@ def main(cfg: DictConfig):
         generator=generator,
     )
 
-    for x in dataset.iter(batch_size=1):
+    if cfg.dataset.name != "custom":
+        data_iter = dataset.iter(batch_size=1)
+    else:
+        data_iter = dataset
+
+    for x in data_iter:
         sample_fn.regenerate_latents()
         sample_fn.rembed_text(x["prompt"])
         fitness_fn = create_fitness_fn(cfg, x["prompt"])
@@ -362,13 +428,38 @@ def main(cfg: DictConfig):
             splits=cfg.fitness.problem_splits,
             solution_length=solution_length,
             device=pipeline.device,
-            initial_bounds=cfg.solver.initial_bounds
+            initial_bounds=cfg.solver.initial_bounds,
         )
         solver = create_solver(problem, centroid, cfg.solver)
 
         logger = StdOutLogger(solver)
+
+        # baseline
+        baseline_img = sample_fn()
+        baseline_fitness = fitness_fn(baseline_img)
+        img = numpy_to_pil(sample_fn())[0]
+        if cfg.benchmark.wandb.active:
+            wandb.log(
+                {
+                    "step": 0,
+                    "best_img": wandb.Image(img),
+                    "prompt": x["prompt"],
+                    "pop_best_eval": baseline_fitness.item(),
+                    "mean_eval": baseline_fitness.item(),
+                    "median_eval": baseline_fitness.item(),
+                }
+            )
+
+        if cfg.benchmark.save_images.active:
+            img.save(
+                os.path.join(
+                    cfg.benchmark.save_images.save_dir, f"{x['prompt'][:10]}_baseline.png"
+                )
+            )
+        print(f"Baseline fitness: {baseline_fitness}")
+
         # run
-        benchmark(cfg.benchmark, solver, sample_fn, inner_fn, x['prompt'])
+        benchmark(cfg.benchmark, solver, sample_fn, inner_fn, x["prompt"])
 
 
 if __name__ == "__main__":
