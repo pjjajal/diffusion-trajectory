@@ -25,3 +25,4 @@ wandb[media]
 bitsandbytes
 gguf
 hydra-core
+beautifulsoup4

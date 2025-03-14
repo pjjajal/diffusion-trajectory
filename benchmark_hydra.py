@@ -1,56 +1,59 @@
 import argparse
 import logging
+import os
 import random
 import subprocess
 import time
 import warnings
 from pathlib import Path, PosixPath, WindowsPath
 from typing import *
-import os
 
 import hydra
 import numpy as np
 import pandas
 import torch
 import wandb
+from diffusers import BitsAndBytesConfig as DiffusersBitsAndBytesConfig
 from diffusers import (
     DiffusionPipeline,
-    StableDiffusionXLPipeline,
-    StableDiffusion3Pipeline,
-    UNet2DConditionModel,
+    LatentConsistencyModelPipeline,
+    PixArtSigmaPipeline,
     SD3Transformer2DModel,
-    BitsAndBytesConfig as DiffusersBitsAndBytesConfig,
+    StableDiffusion3Pipeline,
+    StableDiffusionXLPipeline,
+    UNet2DConditionModel,
 )
 from diffusers.utils import export_to_gif, numpy_to_pil
 from einops import einsum
 from evotorch.algorithms import CEM, CMAES, SNES
+from evotorch.logging import StdOutLogger
 from omegaconf import DictConfig
 from PIL.Image import Image
 from tqdm.auto import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 import eval_datasets
-from evotorch.logging import StdOutLogger
 from evo.vectorized_problem import VectorizedProblem
 from fitness import (
-    compose_fitness_fns,
-    clip_fitness_fn,
-    aesthetic_fitness_fn,
-    pickscore_fitness_fn,
-    imagereward_fitness_fn,
-    hpsv2_fitness_fn,
-    brightness,
-    relative_luminance,
     Novelty,
+    aesthetic_fitness_fn,
+    brightness,
+    clip_fitness_fn,
+    compose_fitness_fns,
+    hpsv2_fitness_fn,
+    imagereward_fitness_fn,
+    pickscore_fitness_fn,
+    relative_luminance,
 )
 from noise_injection_pipelines import (
     DiffusionSample,
+    LCMSamplingPipeline,
+    PixArtSigmaSamplingPipeline,
     SD3SamplingPipeline,
     SDXLSamplingPipeline,
+    noise,
     rotational_transform,
     svd_rot_transform,
-    noise,
-    stateful_svd_rot,
 )
 
 warnings.filterwarnings("ignore")
@@ -100,7 +103,7 @@ def create_pipeline(pipeline_cfg: DictConfig):
                 torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
                 cache_dir=pipeline_cfg.cache_dir,
                 use_safetensors=True,
-                unet=unet
+                unet=unet,
             ).to(pipeline_cfg.device)
             return pipeline
         pipeline = StableDiffusionXLPipeline.from_pretrained(
@@ -143,6 +146,27 @@ def create_pipeline(pipeline_cfg: DictConfig):
             cache_dir=pipeline_cfg.cache_dir,
             use_safetensors=True,
         ).to(pipeline_cfg.device)
+    elif pipeline_cfg.type == "pixart-sigma":
+        if pipeline_cfg.quantize:
+            raise NotImplementedError
+        pipeline = PixArtSigmaPipeline.from_pretrained(
+            pipeline_cfg.model_id,
+            device_map=pipeline_cfg.device_map,
+            torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+            cache_dir=pipeline_cfg.cache_dir,
+            use_safetensors=True,
+        ).to(pipeline_cfg.device)
+    elif pipeline_cfg.type == "lcm":
+        if pipeline_cfg.quantize:
+            raise NotImplementedError
+        pipeline = LatentConsistencyModelPipeline.from_pretrained(
+            pipeline_cfg.model_id,
+            device_map=pipeline_cfg.device_map,
+            torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+            cache_dir=pipeline_cfg.cache_dir,
+            use_safetensors=True,
+            safety_checker=None
+        ).to(pipeline_cfg.device)
     return pipeline
 
 
@@ -160,7 +184,8 @@ def create_sampler(
             guidance_scale=cfg.pipeline.guidance_scale,
             generator=generator,
             add_noise=cfg.noise_injection.add_noise,
-            static_latents = cfg.noise_injection.static_latents
+            height=cfg.pipeline.height,
+            width=cfg.pipeline.width
         )
     elif cfg.pipeline.type == "sd3":
         return SD3SamplingPipeline(
@@ -171,7 +196,32 @@ def create_sampler(
             guidance_scale=cfg.pipeline.guidance_scale,
             generator=generator,
             add_noise=cfg.noise_injection.add_noise,
-            static_latents = cfg.noise_injection.static_latents,
+            height=cfg.pipeline.height,
+            width=cfg.pipeline.width
+        )
+    elif cfg.pipeline.type == "pixart-sigma":
+        return PixArtSigmaSamplingPipeline(
+            pipeline=pipeline,
+            prompt="",
+            num_inference_steps=cfg.pipeline.num_inference_steps,
+            classifier_free_guidance=cfg.pipeline.classifier_free_guidance,
+            guidance_scale=cfg.pipeline.guidance_scale,
+            generator=generator,
+            add_noise=cfg.noise_injection.add_noise,
+            height=cfg.pipeline.height,
+            width=cfg.pipeline.width
+        )
+    elif cfg.pipeline.type == "lcm":
+        return LCMSamplingPipeline(
+            pipeline=pipeline,
+            prompt="",
+            num_inference_steps=cfg.pipeline.num_inference_steps,
+            classifier_free_guidance=cfg.pipeline.classifier_free_guidance,
+            guidance_scale=cfg.pipeline.guidance_scale,
+            generator=generator,
+            add_noise=cfg.noise_injection.add_noise,
+            height=cfg.pipeline.height,
+            width=cfg.pipeline.width
         )
 
 
@@ -217,11 +267,24 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
         weights.append(fitness_cfg.fns.novelty.weight)
     if fitness_cfg.fns.hpsv2.active:
         hpsv2_prompt = prompt or fitness_cfg.fns.hpsv2.prompt
-        fitness_fns.append(hpsv2_fitness_fn(prompt=hpsv2_prompt, cache_dir=cache_dir))
+        fitness_fns.append(
+            hpsv2_fitness_fn(
+                prompt=hpsv2_prompt,
+                cache_dir=cache_dir,
+                device=fitness_cfg.device,
+                dtype=fitness_cfg.dtype,
+            )
+        )
         weights.append(fitness_cfg.fns.hpsv2.weight)
     if fitness_cfg.fns.imagereward.active:
         imagereward_prompt = prompt or fitness_cfg.fns.imagereward.prompt
-        fitness_fns.append(imagereward_fitness_fn(prompt=imagereward_prompt))
+        fitness_fns.append(
+            imagereward_fitness_fn(
+                prompt=imagereward_prompt,
+                device=fitness_cfg.device,
+                dtype=fitness_cfg.dtype,
+            )
+        )
         weights.append(fitness_cfg.fns.imagereward.weight)
     return compose_fitness_fns(fitness_fns, weights)
 
@@ -252,16 +315,6 @@ def create_obj_fn(sample_fn, fitness_fn, cfg: DictConfig):
             fitness_fn=fitness_fn,
             latent_shape=sample_fn.latents.shape,
             device=sample_fn.pipeline.device,
-            dtype=sample_fn.pipeline.dtype,
-        )
-    elif cfg.noise_injection.type == "stateful_svd_rot_transform":
-        obj_fn, inner_fn, centroid, solution_length = stateful_svd_rot(
-            sample_fn=sample_fn,
-            fitness_fn=fitness_fn,
-            latent_shape=sample_fn.latents.shape,
-            device=sample_fn.pipeline.device,
-            mean_scale=cfg.noise_injection.mean_scale,
-            bound=cfg.noise_injection.bound,
             dtype=sample_fn.pipeline.dtype,
         )
     else:
@@ -341,10 +394,6 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
         img = numpy_to_pil(inner_fn(pop_best_sol))[0]
         frames.append(img)
 
-        if not sample_fn.static_latents:
-            if solver.status['pop_best'].evals.item() >= solver.status['best_eval']:
-                inner_fn(pop_best_sol, update_state=True)
-
         running_time = time.time() - start_time
         if benchmark_cfg.wandb.active:
             wandb_log(solver, step, frames[-1], prompt, running_time, sample_fn.device)
@@ -361,7 +410,9 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
 
         if benchmark_cfg.save_images.active:
             img.save(
-                os.path.join(benchmark_cfg.save_images.save_dir, f"{prompt[:10]}_{step}.png")
+                os.path.join(
+                    benchmark_cfg.save_images.save_dir, f"{prompt[:10]}_{step}.png"
+                )
             )
 
     if benchmark_cfg.wandb.active:
@@ -453,7 +504,8 @@ def main(cfg: DictConfig):
         if cfg.benchmark.save_images.active:
             img.save(
                 os.path.join(
-                    cfg.benchmark.save_images.save_dir, f"{x['prompt'][:10]}_baseline.png"
+                    cfg.benchmark.save_images.save_dir,
+                    f"{x['prompt'][:10]}_baseline.png",
                 )
             )
         print(f"Baseline fitness: {baseline_fitness}")

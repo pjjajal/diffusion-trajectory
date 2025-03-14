@@ -25,6 +25,8 @@ dataset:
 pipeline:
   type: "sdxl" # ["sdxl", "sd3"]
   model_id: "stabilityai/sdxl-turbo"
+  height: 512
+  width: 512
   num_inference_steps: 15
   classifier_free_guidance: true
   guidance_scale: 4.0

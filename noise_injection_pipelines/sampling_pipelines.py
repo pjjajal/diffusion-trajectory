@@ -4,7 +4,11 @@ import torch
 from diffusers.pipelines import DiffusionPipeline
 from diffusers.pipelines.stable_diffusion_xl import StableDiffusionXLPipeline
 from diffusers.pipelines.stable_diffusion_3 import StableDiffusion3Pipeline
-from einops import einsum 
+from diffusers.pipelines.pixart_alpha.pipeline_pixart_sigma import PixArtSigmaPipeline
+from diffusers.pipelines.latent_consistency_models.pipeline_latent_consistency_text2img import (
+    LatentConsistencyModelPipeline,
+)
+from einops import einsum
 
 
 class SamplingPipeline(ABC):
@@ -159,7 +163,6 @@ class SD3SamplingPipeline(SamplingPipeline):
         width: int = 512,
         generator: torch.Generator = torch.Generator(),
         add_noise: bool = True,
-        static_latents: bool = True,
     ):
         super().__init__(
             pipeline,
@@ -172,7 +175,6 @@ class SD3SamplingPipeline(SamplingPipeline):
             generator,
         )
         self.add_noise = add_noise
-        self.static_latents = static_latents
         (
             self.prompt_embeds,
             self.negative_prompt_embeds,
@@ -229,8 +231,112 @@ class SD3SamplingPipeline(SamplingPipeline):
 
     def update_latents(self, latent_update):
         if not self.static_latents:
-            print('Updating latents')
+            print("Updating latents")
             self.latents = latent_update(self.latents)
+
+    @torch.inference_mode()
+    def __call__(self, noise_injection=None):
+        # noise injection happens here
+        latents = self.latents
+        if noise_injection is not None:
+            latents = latents + noise_injection if self.add_noise else noise_injection
+        latents = latents.to(self.device, dtype=self.pipeline.dtype)
+        images = self.pipeline(
+            height=self.height,
+            width=self.width,
+            num_inference_steps=self.num_inference_steps,
+            guidance_scale=self.guidance_scale,
+            prompt_embeds=self.prompt_embeds.expand(latents.shape[0], -1, -1),
+            negative_prompt_embeds=self.negative_prompt_embeds.expand(
+                latents.shape[0], -1, -1
+            ),
+            pooled_prompt_embeds=self.pooled_prompt_embeds.expand(latents.shape[0], -1),
+            negative_pooled_prompt_embeds=self.negative_pooled_prompt_embeds.expand(
+                latents.shape[0], -1
+            ),
+            generator=self.generator,  # TODO this may need to be changed to be a seeded generator.
+            latents=latents,
+            output_type="np",
+        )
+        return images.images
+
+
+class PixArtSigmaSamplingPipeline(SamplingPipeline):
+    def __init__(
+        self,
+        pipeline: PixArtSigmaPipeline,
+        prompt: str,
+        num_inference_steps: int,
+        classifier_free_guidance: bool = True,
+        guidance_scale: float = 7,
+        height: int = 512,
+        width: int = 512,
+        generator=torch.Generator(),
+        add_noise: bool = True,
+    ):
+        super().__init__(
+            pipeline,
+            prompt,
+            num_inference_steps,
+            classifier_free_guidance,
+            guidance_scale,
+            height,
+            width,
+            generator,
+        )
+
+        self.add_noise = add_noise
+        (
+            self.prompt_embeds,
+            self.prompt_attention_mask,
+            self.negative_prompt_embeds,
+            self.negative_prompt_attention_mask,
+        ) = self.embed_text(prompt)
+        self.latents = self.generate_latents()
+
+    @torch.inference_mode()
+    def embed_text(self, prompt: str):
+        (
+            prompt_embeds,
+            prompt_attention_mask,
+            negative_prompt_embeds,
+            negative_prompt_attention_mask,
+        ) = self.pipeline.encode_prompt(
+            prompt=prompt,
+            device=self.device,
+            do_classifier_free_guidance=self.classifier_free_guidance,
+            num_images_per_prompt=1,
+        )
+        return (
+            prompt_embeds,
+            prompt_attention_mask,
+            negative_prompt_embeds,
+            negative_prompt_attention_mask,
+        )
+
+    @torch.inference_mode()
+    def generate_latents(self):
+        num_channel_latents = self.pipeline.transformer.config.in_channels
+        height = int(self.height) // self.pipeline.vae_scale_factor
+        width = int(self.width) // self.pipeline.vae_scale_factor
+        latents = torch.randn(
+            (1, num_channel_latents, height, width),
+            device=self.pipeline.device,
+            dtype=self.pipeline.dtype,
+            generator=self.generator,
+        )
+        return latents
+
+    def regenerate_latents(self):
+        self.latents = self.generate_latents()
+
+    def rembed_text(self, prompt):
+        (
+            self.prompt_embeds,
+            self.prompt_attention_mask,
+            self.negative_prompt_embeds,
+            self.negative_prompt_attention_mask,
+        ) = self.embed_text(prompt)
 
     @torch.inference_mode()
     def __call__(self, noise_injection=None, noise_transform=None):
@@ -250,12 +356,112 @@ class SD3SamplingPipeline(SamplingPipeline):
             negative_prompt_embeds=self.negative_prompt_embeds.expand(
                 latents.shape[0], -1, -1
             ),
-            pooled_prompt_embeds=self.pooled_prompt_embeds.expand(latents.shape[0], -1),
-            negative_pooled_prompt_embeds=self.negative_pooled_prompt_embeds.expand(
+            prompt_attention_mask=self.prompt_attention_mask.expand(
+                latents.shape[0], -1
+            ),
+            negative_prompt_attention_mask=self.negative_prompt_attention_mask.expand(
                 latents.shape[0], -1
             ),
             generator=self.generator,  # TODO this may need to be changed to be a seeded generator.
             latents=latents,
             output_type="np",
+            prompt=None,
+            negative_prompt=None,
+        )
+        return images.images
+
+
+class LCMSamplingPipeline(SamplingPipeline):
+    def __init__(
+        self,
+        pipeline: LatentConsistencyModelPipeline,
+        prompt: str,
+        num_inference_steps: int,
+        classifier_free_guidance: bool = True,
+        guidance_scale: float = 7,
+        height: int = 512,
+        width: int = 512,
+        generator=torch.Generator(),
+        add_noise: bool = True,
+    ):
+        super().__init__(
+            pipeline,
+            prompt,
+            num_inference_steps,
+            classifier_free_guidance,
+            guidance_scale,
+            height,
+            width,
+            generator,
+        )
+
+        self.add_noise = add_noise
+        (
+            self.prompt_embeds,
+            self.negative_prompt_embeds,
+        ) = self.embed_text(prompt)
+        self.latents = self.generate_latents()
+
+    
+    @torch.inference_mode()
+    def embed_text(self, prompt: str):
+        (
+            prompt_embeds,
+            negative_prompt_embeds,
+        ) = self.pipeline.encode_prompt(
+            prompt=prompt,
+            device=self.device,
+            do_classifier_free_guidance=self.classifier_free_guidance,
+            num_images_per_prompt=1,
+        )
+        return (
+            prompt_embeds,
+            negative_prompt_embeds,
+        )
+    
+    @torch.inference_mode()
+    def generate_latents(self):
+        num_channel_latents = self.pipeline.unet.config.in_channels
+        height = int(self.height) // self.pipeline.vae_scale_factor
+        width = int(self.width) // self.pipeline.vae_scale_factor
+        latents = torch.randn(
+            (1, num_channel_latents, height, width),
+            device=self.pipeline.device,
+            dtype=self.pipeline.dtype,
+            generator=self.generator,
+        )
+        return latents
+    
+
+    def regenerate_latents(self):
+        self.latents = self.generate_latents()
+
+    def rembed_text(self, prompt):
+        (
+            self.prompt_embeds,
+            self.negative_prompt_embeds,
+        ) = self.embed_text(prompt)
+
+
+    @torch.inference_mode()
+    @torch.inference_mode()
+    def __call__(self, noise_injection=None, noise_transform=None):
+        # noise injection happens here
+        latents = self.latents
+        if noise_injection is not None:
+            latents = latents + noise_injection if self.add_noise else noise_injection
+        if noise_transform is not None:
+            latents = noise_transform(latents)
+        latents = latents.to(self.device, dtype=self.pipeline.dtype)
+        images = self.pipeline(
+            height=self.height,
+            width=self.width,
+            num_inference_steps=self.num_inference_steps,
+            guidance_scale=self.guidance_scale,
+            prompt_embeds=self.prompt_embeds.expand(latents.shape[0], -1, -1),
+            generator=self.generator,  # TODO this may need to be changed to be a seeded generator.
+            latents=latents,
+            output_type="np",
+            prompt=None,
         )
         return images.images
