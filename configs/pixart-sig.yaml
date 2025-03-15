@@ -7,16 +7,16 @@ benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 10 # int > 0
+  for_steps: 30 # int > 0
   wandb:
-    active: false
+    active: true
     project: "inference-diffusion-noise-optim"
   save_images:
     active: true
     save_dir: "./benchmark_runs"
 
 dataset:
-  name: "custom" # [drawbench, custom]
+  name: "drawbench" # [drawbench, custom]
   cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
   prompts:
     - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
@@ -27,7 +27,7 @@ pipeline:
   model_id: "PixArt-alpha/PixArt-Sigma-XL-2-1024-MS"
   height: 1024
   width: 1024
-  num_inference_steps: 30
+  num_inference_steps: 25
   classifier_free_guidance: true
   guidance_scale: 4.5
   device_map: null
@@ -75,18 +75,18 @@ fitness:
       weight: 1.0
 
 noise_injection:
-  type: "noise" # ["rotational_transform", "svd_rot_transform", "noise"]
-  add_noise: false
-  mean_scale: 0.001
+  type: "svd_rot_transform" # ["rotational_transform", "svd_rot_transform", "noise"]
+  add_noise: true
+  mean_scale: 0.01
   bound: 0.1
 
 solver:
   algorithm: "cmaes" # ["cmaes" , "snes"]
   initial_bounds: [-1, 1]
   cmaes:
-    stdev_init: 0.2
+    stdev_init: 1.5
     separable: true
-    center_init: "latents"  # null | ["latents"]
+    center_init: null  # null | ["latents"]
     csa_squared: true
   snes:
     stdev_init: 1.5

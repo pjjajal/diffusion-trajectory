@@ -468,6 +468,7 @@ def main(cfg: DictConfig):
     for x in data_iter:
         sample_fn.regenerate_latents()
         sample_fn.rembed_text(x["prompt"])
+        print(x['prompt'])
         fitness_fn = create_fitness_fn(cfg, x["prompt"])
         obj_fn, inner_fn, centroid, solution_length = create_obj_fn(
             sample_fn, fitness_fn, cfg
