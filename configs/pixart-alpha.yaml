@@ -1,7 +1,7 @@
 defaults:
   - override hydra/job_logging: none
 
-seed: 53435
+seed: 5324
 
 benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
@@ -9,7 +9,7 @@ benchmark:
   till_reward: 0 # float > 0
   for_steps: 30 # int > 0
   wandb:
-    active: true
+    active: false
     project: "inference-diffusion-noise-optim"
   save_images:
     active: true
@@ -95,23 +95,23 @@ solver:
     stdev_init: 1.5
     center_init: "latents" # null | ["latents"]
   ga:
-    popsize: 16
-    re_evaluate: false
+    popsize: 4
+    re_evaluate: true
     mutation:
       active: true
       stdev: 0.1
       mutation_probability: 0.1
     crossover:
       active: true
-      type: "multi_point" # ["one_point", "two_point", "multi_point"]
+      type: "one_point" # ["one_point", "two_point", "multi_point"]
       tournament_size: 4
       cross_over_rate: 0.2
       num_points: 4
   cosyne:
-    popsize: 12
-    tournament_size: 4
+    popsize: 32
+    tournament_size: 16
     mutation_probability: 0.1
-    mutation_stdev: 0.2
-    permute_all: false
-    elitism_ratio: 0.2
-    eta: 2
+    mutation_stdev: 0.05
+    permute_all: true
+    elitism_ratio: 0.30
+    eta: null

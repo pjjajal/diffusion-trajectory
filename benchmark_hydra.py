@@ -28,6 +28,7 @@ from diffusers import (
 from diffusers.utils import export_to_gif, numpy_to_pil
 from einops import einsum
 from evotorch.algorithms import CMAES, SNES, GeneticAlgorithm, Cosyne
+from evotorch import Problem
 from evotorch.operators import (
     GaussianMutation,
     OnePointCrossOver,
@@ -375,7 +376,7 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
         )
     elif solver_cfg.algorithm == "ga":
         operators = []
-        if solver_cfg.ga.operators.mutation.active:
+        if solver_cfg.ga.mutation.active:
             operators.append(
                 GaussianMutation(
                     problem=problem,
@@ -412,8 +413,9 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
         return GeneticAlgorithm(
             problem=problem,
             popsize=solver_cfg.ga.popsize,
-            re_evaluate=solver_cfg.ga.re_evaluate,
+            # re_evaluate=solver_cfg.ga.re_evaluate,
             operators=operators,
+            # re_evaluate_parents_first=True
         )
     elif solver_cfg.algorithm == "cosyne":
         return Cosyne(
