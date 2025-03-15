@@ -22,6 +22,7 @@ from diffusers import (
     StableDiffusion3Pipeline,
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
+    PixArtAlphaPipeline,
 )
 from diffusers.utils import export_to_gif, numpy_to_pil
 from einops import einsum
@@ -51,6 +52,7 @@ from noise_injection_pipelines import (
     PixArtSigmaSamplingPipeline,
     SD3SamplingPipeline,
     SDXLSamplingPipeline,
+    PixArtAlphaSamplingPipeline,
     noise,
     rotational_transform,
     svd_rot_transform,
@@ -156,6 +158,16 @@ def create_pipeline(pipeline_cfg: DictConfig):
             cache_dir=pipeline_cfg.cache_dir,
             use_safetensors=True,
         ).to(pipeline_cfg.device)
+    elif pipeline_cfg.type == "pixart-alpha":
+        if pipeline_cfg.quantize:
+            raise NotImplementedError
+        pipeline = PixArtAlphaPipeline.from_pretrained(
+            pipeline_cfg.model_id,
+            device_map=pipeline_cfg.device_map,
+            torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+            cache_dir=pipeline_cfg.cache_dir,
+            use_safetensors=True,
+        ).to(pipeline_cfg.device)
     elif pipeline_cfg.type == "lcm":
         if pipeline_cfg.quantize:
             raise NotImplementedError
@@ -165,7 +177,7 @@ def create_pipeline(pipeline_cfg: DictConfig):
             torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
             cache_dir=pipeline_cfg.cache_dir,
             use_safetensors=True,
-            safety_checker=None
+            safety_checker=None,
         ).to(pipeline_cfg.device)
     return pipeline
 
@@ -185,7 +197,7 @@ def create_sampler(
             generator=generator,
             add_noise=cfg.noise_injection.add_noise,
             height=cfg.pipeline.height,
-            width=cfg.pipeline.width
+            width=cfg.pipeline.width,
         )
     elif cfg.pipeline.type == "sd3":
         return SD3SamplingPipeline(
@@ -197,7 +209,7 @@ def create_sampler(
             generator=generator,
             add_noise=cfg.noise_injection.add_noise,
             height=cfg.pipeline.height,
-            width=cfg.pipeline.width
+            width=cfg.pipeline.width,
         )
     elif cfg.pipeline.type == "pixart-sigma":
         return PixArtSigmaSamplingPipeline(
@@ -209,7 +221,19 @@ def create_sampler(
             generator=generator,
             add_noise=cfg.noise_injection.add_noise,
             height=cfg.pipeline.height,
-            width=cfg.pipeline.width
+            width=cfg.pipeline.width,
+        )
+    elif cfg.pipeline.type == "pixart-alpha":
+        return PixArtAlphaSamplingPipeline(
+            pipeline=pipeline,
+            prompt="",
+            num_inference_steps=cfg.pipeline.num_inference_steps,
+            classifier_free_guidance=cfg.pipeline.classifier_free_guidance,
+            guidance_scale=cfg.pipeline.guidance_scale,
+            generator=generator,
+            add_noise=cfg.noise_injection.add_noise,
+            height=cfg.pipeline.height,
+            width=cfg.pipeline.width,
         )
     elif cfg.pipeline.type == "lcm":
         return LCMSamplingPipeline(
@@ -221,7 +245,7 @@ def create_sampler(
             generator=generator,
             add_noise=cfg.noise_injection.add_noise,
             height=cfg.pipeline.height,
-            width=cfg.pipeline.width
+            width=cfg.pipeline.width,
         )
 
 
@@ -468,7 +492,7 @@ def main(cfg: DictConfig):
     for x in data_iter:
         sample_fn.regenerate_latents()
         sample_fn.rembed_text(x["prompt"])
-        print(x['prompt'])
+        print(x["prompt"])
         fitness_fn = create_fitness_fn(cfg, x["prompt"])
         obj_fn, inner_fn, centroid, solution_length = create_obj_fn(
             sample_fn, fitness_fn, cfg

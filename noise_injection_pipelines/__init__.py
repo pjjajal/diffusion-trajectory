@@ -10,5 +10,6 @@ from .sampling_pipelines import (
     SD3SamplingPipeline,
     SDXLSamplingPipeline,
     PixArtSigmaSamplingPipeline,
-    LCMSamplingPipeline
+    LCMSamplingPipeline,
+    PixArtAlphaSamplingPipeline
 )
