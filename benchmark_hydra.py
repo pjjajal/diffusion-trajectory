@@ -7,6 +7,7 @@ import time
 import warnings
 from pathlib import Path, PosixPath, WindowsPath
 from typing import *
+from functools import partial
 
 import hydra
 import numpy as np
@@ -26,12 +27,16 @@ from diffusers import (
 )
 from diffusers.utils import export_to_gif, numpy_to_pil
 from einops import einsum
-from evotorch.algorithms import CEM, CMAES, SNES
+from evotorch.algorithms import CMAES, SNES, GeneticAlgorithm, Cosyne
+from evotorch.operators import (
+    GaussianMutation,
+    OnePointCrossOver,
+    MultiPointCrossOver,
+    TwoPointCrossOver,
+)
 from evotorch.logging import StdOutLogger
 from omegaconf import DictConfig
 from PIL.Image import Image
-from tqdm.auto import tqdm
-from tqdm.contrib.logging import logging_redirect_tqdm
 
 import eval_datasets
 from evo.vectorized_problem import VectorizedProblem
@@ -57,6 +62,7 @@ from noise_injection_pipelines import (
     rotational_transform,
     svd_rot_transform,
 )
+from noise_injection_pipelines.initialization import randn_intialization
 
 warnings.filterwarnings("ignore")
 
@@ -367,6 +373,59 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
             stdev_init=solver_cfg.snes.stdev_init,
             center_init=center_init,
         )
+    elif solver_cfg.algorithm == "ga":
+        operators = []
+        if solver_cfg.ga.operators.mutation.active:
+            operators.append(
+                GaussianMutation(
+                    problem=problem,
+                    stdev=solver_cfg.ga.mutation.stdev,
+                    mutation_probability=solver_cfg.ga.mutation.mutation_probability,
+                )
+            )
+        if solver_cfg.ga.crossover.active:
+            if solver_cfg.ga.crossover.type == "one_point":
+                operators.append(
+                    OnePointCrossOver(
+                        problem=problem,
+                        tournament_size=solver_cfg.ga.crossover.tournament_size,
+                        cross_over_rate=solver_cfg.ga.crossover.cross_over_rate,
+                    )
+                )
+            elif solver_cfg.ga.crossover.type == "two_point":
+                operators.append(
+                    TwoPointCrossOver(
+                        problem=problem,
+                        tournament_size=solver_cfg.ga.crossover.tournament_size,
+                        cross_over_rate=solver_cfg.ga.crossover.cross_over_rate,
+                    )
+                )
+            elif solver_cfg.ga.crossover.type == "multi_point":
+                operators.append(
+                    MultiPointCrossOver(
+                        problem=problem,
+                        num_points=solver_cfg.ga.crossover.num_points,
+                        tournament_size=solver_cfg.ga.crossover.tournament_size,
+                        cross_over_rate=solver_cfg.ga.crossover.cross_over_rate,
+                    )
+                )
+        return GeneticAlgorithm(
+            problem=problem,
+            popsize=solver_cfg.ga.popsize,
+            re_evaluate=solver_cfg.ga.re_evaluate,
+            operators=operators,
+        )
+    elif solver_cfg.algorithm == "cosyne":
+        return Cosyne(
+            problem=problem,
+            popsize=solver_cfg.cosyne.popsize,
+            tournament_size=solver_cfg.cosyne.tournament_size,
+            mutation_probability=solver_cfg.cosyne.mutation_probability,
+            mutation_stdev=solver_cfg.cosyne.mutation_stdev,
+            permute_all=solver_cfg.cosyne.permute_all,
+            elitism_ratio=solver_cfg.cosyne.elitism_ratio,
+            eta=solver_cfg.cosyne.eta,
+        )
 
 
 def measure_torch_device_memory_used_mb(device: torch.device) -> float:
@@ -505,6 +564,11 @@ def main(cfg: DictConfig):
             solution_length=solution_length,
             device=pipeline.device,
             initial_bounds=cfg.solver.initial_bounds,
+            initialization=partial(
+                randn_intialization,
+                mean=cfg.solver.initialization.mean,
+                std=cfg.solver.initialization.std,
+            ),
         )
         solver = create_solver(problem, centroid, cfg.solver)
 

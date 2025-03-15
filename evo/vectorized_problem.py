@@ -52,7 +52,7 @@ class VectorizedProblem(Problem):
 
     def _fill(self, values):
         if self.initialization is not None:
-            values = self.initialization(values)
+            self.initialization(values)
             return values
         return super()._fill(values)
 

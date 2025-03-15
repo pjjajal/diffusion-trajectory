@@ -82,13 +82,37 @@ noise_injection:
   bound: 0.01
 
 solver:
-  algorithm: "cmaes" # ["cmaes" , "snes"]
+  algorithm: "cmaes" # ["cmaes" , "snes", "ga", "cosyne"]
   initial_bounds: [-1, 1]
+  initialization:
+    mean: 0.0
+    std: 1.0
   cmaes:
     stdev_init: 0.5
     separable: true
-    center_init: "latents"  # null | ["latents"]
+    center_init: "latents" # null | ["latents"]
     csa_squared: true
   snes:
     stdev_init: 1.5
     center_init: "latents" # null | ["latents"]
+  ga:
+    popsize: 10
+    re_evaluate: false
+    mutation:
+      active: true
+      stdev: 0.1
+      mutation_probability: 0.1
+    crossover:
+      active: true
+      type: "one_point" # ["one_point", "two_point", "multi_point"]
+      tournament_size: 4
+      cross_over_rate: 0.2
+      num_points: 4
+  cosyne:
+    popsize: 10
+    tournament_size: 4
+    mutation_probability: 0.1
+    mutation_stdev: 0.1
+    permute_all: false
+    elitism_ratio: 0.2
+    eta: null
