@@ -567,7 +567,7 @@ def main(cfg: DictConfig):
             initialization=partial(
                 randn_intialization,
                 mean=cfg.solver.initialization.mean,
-                std=cfg.solver.initialization.std,
+                stdev=cfg.solver.initialization.std,
             ),
         )
         solver = create_solver(problem, centroid, cfg.solver)
