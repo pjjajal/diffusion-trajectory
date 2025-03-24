@@ -64,6 +64,9 @@ from noise_injection_pipelines import (
     svd_rot_transform,
 )
 from noise_injection_pipelines.initialization import randn_intialization
+import ImageReward
+
+
 
 warnings.filterwarnings("ignore")
 
@@ -494,9 +497,13 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
                 break
 
         if benchmark_cfg.save_images.active:
+            if isinstance(prompt, list):
+                prompt_name = prompt[0][:10]
+            else:
+                prompt_name = prompt[:10]
             img.save(
                 os.path.join(
-                    benchmark_cfg.save_images.save_dir, f"{prompt[:10]}_{step}.png"
+                    benchmark_cfg.save_images.save_dir, f"{prompt_name}_{step}.png"
                 )
             )
 
@@ -580,6 +587,11 @@ def main(cfg: DictConfig):
         baseline_img = sample_fn()
         baseline_fitness = fitness_fn(baseline_img)
         img = numpy_to_pil(sample_fn())[0]
+
+        imagereward_model = ImageReward.load("ImageReward-v1.0")
+        imagereward_model = imagereward_model.eval()
+        rewards = imagereward_model.score(x['prompt'], img)
+        print(baseline_fitness.item(), rewards)
         if cfg.benchmark.wandb.active:
             wandb.log(
                 {
@@ -593,10 +605,14 @@ def main(cfg: DictConfig):
             )
 
         if cfg.benchmark.save_images.active:
+            if isinstance(x['prompt'], list):
+                prompt_name = x['prompt'][0][:10]
+            else:
+                prompt_name = x['prompt'][:10]
             img.save(
                 os.path.join(
                     cfg.benchmark.save_images.save_dir,
-                    f"{x['prompt'][:10]}_baseline.png",
+                    f"{prompt_name}_baseline.png",
                 )
             )
         print(f"Baseline fitness: {baseline_fitness}")

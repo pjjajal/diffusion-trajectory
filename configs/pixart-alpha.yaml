@@ -7,16 +7,16 @@ benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 30 # int > 0
+  for_steps: 15 # int > 0
   wandb:
-    active: false
+    active: true
     project: "inference-diffusion-noise-optim"
   save_images:
-    active: true
+    active: false
     save_dir: "./benchmark_runs"
 
 dataset:
-  name: "custom" # [drawbench, custom]
+  name: "drawbench" # [drawbench, custom]
   cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
   prompts:
     - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
@@ -108,10 +108,10 @@ solver:
       cross_over_rate: 0.2
       num_points: 4
   cosyne:
-    popsize: 32
+    popsize: 16
     tournament_size: 16
-    mutation_probability: 0.1
-    mutation_stdev: 0.05
+    mutation_probability: 0.5
+    mutation_stdev: 0.5
     permute_all: true
-    elitism_ratio: 0.30
+    elitism_ratio: 0.1
     eta: null
