@@ -12,7 +12,8 @@ evotorch
 ipykernel
 ipywidgets
 treescope
-hpsv2
+# hpsv2
+hpsv2x # this is hpsv2 with a bug fix.
 image-reward
 ml-collections
 absl-py
