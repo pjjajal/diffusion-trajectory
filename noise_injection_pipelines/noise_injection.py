@@ -350,7 +350,7 @@ def noise(
     solution_length = c * h * w
     def _inner_fn(x):
         x = x.reshape(-1, c, h, w).to(device, dtype=dtype)
-        samples = sample_fn(x)
+        samples = sample_fn(noise_injection=x)
         return samples
 
     def _fitness(x):

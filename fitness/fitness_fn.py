@@ -29,8 +29,10 @@ def handle_input(img: torch.Tensor | np.ndarray, skip: bool = False) -> Image:
         return img
     if isinstance(img, torch.Tensor):
         pil_imgs = pt_to_pil(img)
-    else:
+    elif isinstance(img, np.ndarray):
         pil_imgs = numpy_to_pil(img)
+    else:
+        pil_imgs = img
     return pil_imgs
 
 
@@ -38,6 +40,7 @@ def handle_input(img: torch.Tensor | np.ndarray, skip: bool = False) -> Image:
 ### Return callable which computes total fitness score
 ###
 def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Callable:
+    assert len(fitness_fns) == len(weights)
     fitness = lambda img: sum(
         [w * fn(img).cpu() for w, fn in zip(weights, fitness_fns)]
     )

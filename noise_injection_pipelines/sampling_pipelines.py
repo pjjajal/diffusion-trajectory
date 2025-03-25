@@ -23,6 +23,7 @@ class SamplingPipeline(ABC):
         height: int = 512,
         width: int = 512,
         generator: torch.Generator = torch.Generator(),
+        output_type: str = "pil",
     ):
         super().__init__()
         self.device = pipeline.device
@@ -34,6 +35,7 @@ class SamplingPipeline(ABC):
         self.generator = generator
         self.guidance_scale = guidance_scale
         self.classifier_free_guidance = classifier_free_guidance or guidance_scale > 0.0
+        self.output_type = output_type
 
     @abstractmethod
     def embed_text(self, prompt: list[str] | None = None):
@@ -60,6 +62,7 @@ class SDXLSamplingPipeline(SamplingPipeline):
         width: int = 512,
         generator: torch.Generator = torch.Generator(),
         add_noise: bool = True,
+        output_type: str = "pil",
     ):
         super().__init__(
             pipeline,
@@ -70,6 +73,7 @@ class SDXLSamplingPipeline(SamplingPipeline):
             height,
             width,
             generator,
+            output_type
         )
         self.add_noise = add_noise
         (
@@ -147,7 +151,7 @@ class SDXLSamplingPipeline(SamplingPipeline):
             generator=self.generator,  # TODO this may need to be changed to be a seeded generator.
             num_images_per_prompt=latents.shape[0],
             latents=latents,
-            output_type="np",
+            output_type=self.output_type,
         )
         return images.images
 
@@ -164,6 +168,7 @@ class SD3SamplingPipeline(SamplingPipeline):
         width: int = 512,
         generator: torch.Generator = torch.Generator(),
         add_noise: bool = True,
+        output_type: str = "pil",
     ):
         super().__init__(
             pipeline,
@@ -174,6 +179,7 @@ class SD3SamplingPipeline(SamplingPipeline):
             height,
             width,
             generator,
+            output_type
         )
         self.add_noise = add_noise
         (
@@ -257,7 +263,7 @@ class SD3SamplingPipeline(SamplingPipeline):
             ),
             generator=self.generator,  # TODO this may need to be changed to be a seeded generator.
             latents=latents,
-            output_type="np",
+            output_type=self.output_type,
         )
         return images.images
 
@@ -274,6 +280,7 @@ class PixArtSigmaSamplingPipeline(SamplingPipeline):
         width: int = 512,
         generator=torch.Generator(),
         add_noise: bool = True,
+        output_type: str = "pil",
     ):
         super().__init__(
             pipeline,
@@ -284,6 +291,7 @@ class PixArtSigmaSamplingPipeline(SamplingPipeline):
             height,
             width,
             generator,
+            output_type
         )
 
         self.add_noise = add_noise
@@ -365,7 +373,7 @@ class PixArtSigmaSamplingPipeline(SamplingPipeline):
             ),
             generator=self.generator,  # TODO this may need to be changed to be a seeded generator.
             latents=latents,
-            output_type="np",
+            output_type=self.output_type,
             prompt=None,
             negative_prompt=None,
         )
@@ -384,6 +392,7 @@ class PixArtAlphaSamplingPipeline(SamplingPipeline):
         width: int = 512,
         generator=torch.Generator(),
         add_noise: bool = True,
+        output_type: str = "pil",
     ):
         super().__init__(
             pipeline,
@@ -394,6 +403,7 @@ class PixArtAlphaSamplingPipeline(SamplingPipeline):
             height,
             width,
             generator,
+            output_type
         )
 
         self.add_noise = add_noise
@@ -475,7 +485,7 @@ class PixArtAlphaSamplingPipeline(SamplingPipeline):
             ),
             generator=self.generator,  # TODO this may need to be changed to be a seeded generator.
             latents=latents,
-            output_type="np",
+            output_type=self.output_type,
             prompt=None,
             negative_prompt=None,
         )
@@ -494,6 +504,7 @@ class LCMSamplingPipeline(SamplingPipeline):
         width: int = 512,
         generator=torch.Generator(),
         add_noise: bool = True,
+        output_type: str = "pil",
     ):
         super().__init__(
             pipeline,
@@ -504,6 +515,7 @@ class LCMSamplingPipeline(SamplingPipeline):
             height,
             width,
             generator,
+            output_type
         )
 
         self.add_noise = add_noise
@@ -552,7 +564,6 @@ class LCMSamplingPipeline(SamplingPipeline):
         ) = self.embed_text(prompt)
 
     @torch.inference_mode()
-    @torch.inference_mode()
     def __call__(self, noise_injection=None, noise_transform=None):
         # noise injection happens here
         latents = self.latents
@@ -569,7 +580,7 @@ class LCMSamplingPipeline(SamplingPipeline):
             prompt_embeds=self.prompt_embeds.expand(latents.shape[0], -1, -1),
             generator=self.generator,  # TODO this may need to be changed to be a seeded generator.
             latents=latents,
-            output_type="np",
+            output_type=self.output_type,
             prompt=None,
         )
         return images.images

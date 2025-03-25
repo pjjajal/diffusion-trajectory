@@ -479,12 +479,12 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
         solver.step()
 
         pop_best_sol = solver.status["pop_best"].values
-        img = numpy_to_pil(inner_fn(pop_best_sol))[0]
-        frames.append(img)
+        img = inner_fn(pop_best_sol.unsqueeze(0))
+        # frames.append(img)
 
         running_time = time.time() - start_time
         if benchmark_cfg.wandb.active:
-            wandb_log(solver, step, frames[-1], prompt, running_time, sample_fn.device)
+            wandb_log(solver, step, img, prompt, running_time, sample_fn.device)
 
         if benchmark_cfg.type == "till_time":
             if running_time >= benchmark_cfg.till_time:
@@ -586,12 +586,7 @@ def main(cfg: DictConfig):
         # baseline
         baseline_img = sample_fn()
         baseline_fitness = fitness_fn(baseline_img)
-        img = numpy_to_pil(sample_fn())[0]
-
-        imagereward_model = ImageReward.load("ImageReward-v1.0")
-        imagereward_model = imagereward_model.eval()
-        rewards = imagereward_model.score(x['prompt'], img)
-        print(baseline_fitness.item(), rewards)
+        img = baseline_img[0]
         if cfg.benchmark.wandb.active:
             wandb.log(
                 {
