@@ -1,6 +1,7 @@
 import torch
 from einops import einsum
 from .diffusion_pt import DiffusionSample
+from collections import deque
 
 
 # this function parameterizes the noise as the difference between the orginal latent and a rotated + translated version of it.
@@ -339,6 +340,7 @@ def rotational_transform_inject_multiple(
 
 #     return _fitness, centroid, solution_length
 
+
 def noise(
     sample_fn,
     fitness_fn,
@@ -348,6 +350,7 @@ def noise(
 ):
     b, c, h, w = latent_shape
     solution_length = c * h * w
+
     def _inner_fn(x):
         x = x.reshape(-1, c, h, w).to(device, dtype=dtype)
         samples = sample_fn(noise_injection=x)
@@ -368,3 +371,50 @@ def noise(
         )
 
     return _fitness, _inner_fn, sample_fn.latents, solution_length
+
+
+class StatefulNoise:
+    def __init__(
+        self, sample_fn, fitness_fn, latent_shape, device, dtype=torch.float32
+    ):
+        super().__init__()
+        self.sample_fn = sample_fn
+        self.fitness_fn = fitness_fn
+        self.latent_shape = latent_shape
+        self.device = device
+        self.dtype = dtype
+
+        b, c, h, w = latent_shape
+
+        self.c, self.h, self.w = c, h, w
+        self.solution_length = c * h * w
+
+        self.img_queue = deque()
+        self.fitness_queue = deque()
+
+    def _inner_fn(self, x):
+        x = x.reshape(-1, self.c, self.h, self.w).to(self.device, dtype=self.dtype)
+        samples = self.sample_fn(noise_injection=x)
+        return samples
+
+    def __call__(self, x):
+        samples = self._inner_fn(x)
+
+        fitness = [
+            (
+                self.fitness_fn(sample.unsqueeze(0))
+                if isinstance(self.sample_fn, DiffusionSample)
+                else self.fitness_fn(sample)
+            )
+            for sample in samples
+        ]
+        self.img_queue.extend(samples)
+        self.fitness_queue.extend(fitness)
+        return torch.cat(fitness, dim=0)
+    
+    def get_best_img(self):
+        argmax = self.fitness_queue.index(max(self.fitness_queue))
+        return self.img_queue[argmax]
+
+    def get_best_fitness(self):
+        return max(self.fitness_queue)
