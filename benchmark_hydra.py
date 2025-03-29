@@ -24,6 +24,7 @@ from diffusers import (
     StableDiffusionXLPipeline,
     UNet2DConditionModel,
     PixArtAlphaPipeline,
+    FluxPipeline,
 )
 from diffusers.utils import export_to_gif, numpy_to_pil
 from einops import einsum
@@ -59,12 +60,12 @@ from noise_injection_pipelines import (
     SD3SamplingPipeline,
     SDXLSamplingPipeline,
     PixArtAlphaSamplingPipeline,
+    FluxSamplingPipeline,
     noise,
     rotational_transform,
     svd_rot_transform,
 )
 from noise_injection_pipelines.initialization import randn_intialization
-import ImageReward
 
 
 
@@ -189,6 +190,18 @@ def create_pipeline(pipeline_cfg: DictConfig):
             use_safetensors=True,
             safety_checker=None,
         ).to(pipeline_cfg.device)
+    elif pipeline_cfg.type == "flux":
+        pass
+        pipeline = FluxPipeline.from_pretrained(
+            pipeline_cfg.model_id,
+            device_map=pipeline_cfg.device_map,
+            torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+            cache_dir=pipeline_cfg.cache_dir,
+            use_safetensors=True,
+        )
+        pipeline.enable_sequential_cpu_offload()
+        pipeline.vae.enable_slicing()
+        pipeline.vae.enable_tiling()
     return pipeline
 
 
