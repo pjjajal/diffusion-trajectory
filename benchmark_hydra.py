@@ -25,7 +25,9 @@ from diffusers import (
     UNet2DConditionModel,
     PixArtAlphaPipeline,
     FluxPipeline,
+    FluxTransformer2DModel
 )
+from transformers import BitsAndBytesConfig as BitsAndBytesConfig, T5EncoderModel
 from diffusers.utils import export_to_gif, numpy_to_pil
 from einops import einsum
 from evotorch.algorithms import CMAES, SNES, GeneticAlgorithm, Cosyne
@@ -191,15 +193,53 @@ def create_pipeline(pipeline_cfg: DictConfig):
             safety_checker=None,
         ).to(pipeline_cfg.device)
     elif pipeline_cfg.type == "flux":
-        pass
+        transformer = None
+        if pipeline_cfg.quantize:
+            load_in_4bit = pipeline_cfg.quantize_cfg.bits == "4bit"
+            load_in_8bit = pipeline_cfg.quantize_cfg.bits == "8bit"
+            text_quant_config = BitsAndBytesConfig(
+                load_in_4bit=load_in_4bit,
+                load_in_8bit=load_in_8bit
+            )
+            text_encoder = T5EncoderModel.from_pretrained(
+                pipeline_cfg.model_id,
+                subfolder="text_encoder_2",
+                quantization_config=text_quant_config,
+                torch_dtype=torch.float16,
+            )
+            quant_config = DiffusersBitsAndBytesConfig(
+                load_in_4bit=load_in_4bit,
+                load_in_8bit=load_in_8bit,
+            )
+            transformer = FluxTransformer2DModel.from_pretrained(
+                pipeline_cfg.model_id,
+                subfolder="transformer",
+                quantization_config=quant_config,
+                torch_dtype=torch.float16,
+                cache_dir=pipeline_cfg.cache_dir,
+                use_safetensors=True,
+            )
+            pipeline = FluxPipeline.from_pretrained(
+                pipeline_cfg.model_id,
+                torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+                cache_dir=pipeline_cfg.cache_dir,
+                use_safetensors=True,
+                transformer=transformer,
+                text_encoder_2=text_encoder,
+                device_map=pipeline_cfg.device_map,
+            ).to(pipeline_cfg.device)
+            # pipeline.vae.to(memory_format=torch.channels_last)
+            # pipeline.vae.enable_slicing()
+            # pipeline.vae.enable_tiling()
+            return pipeline
         pipeline = FluxPipeline.from_pretrained(
             pipeline_cfg.model_id,
             device_map=pipeline_cfg.device_map,
             torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
             cache_dir=pipeline_cfg.cache_dir,
             use_safetensors=True,
-        )
-        pipeline.enable_sequential_cpu_offload()
+        ).to(pipeline_cfg.device)
+        pipeline.vae.to(memory_format=torch.channels_last)
         pipeline.vae.enable_slicing()
         pipeline.vae.enable_tiling()
     return pipeline
@@ -260,6 +300,18 @@ def create_sampler(
         )
     elif cfg.pipeline.type == "lcm":
         return LCMSamplingPipeline(
+            pipeline=pipeline,
+            prompt="",
+            num_inference_steps=cfg.pipeline.num_inference_steps,
+            classifier_free_guidance=cfg.pipeline.classifier_free_guidance,
+            guidance_scale=cfg.pipeline.guidance_scale,
+            generator=generator,
+            add_noise=cfg.noise_injection.add_noise,
+            height=cfg.pipeline.height,
+            width=cfg.pipeline.width,
+        )
+    elif cfg.pipeline.type == "flux":
+        return FluxSamplingPipeline(
             pipeline=pipeline,
             prompt="",
             num_inference_steps=cfg.pipeline.num_inference_steps,
@@ -492,7 +544,7 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
         solver.step()
 
         pop_best_sol = solver.status["pop_best"].values
-        img = inner_fn(pop_best_sol.unsqueeze(0))
+        img = inner_fn(pop_best_sol.unsqueeze(0))[0]
         # frames.append(img)
 
         running_time = time.time() - start_time
@@ -521,7 +573,7 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
             )
 
     if benchmark_cfg.wandb.active:
-        wandb_log(solver, step, frames[-1], prompt, running_time, sample_fn.device)
+        wandb_log(solver, step, img, prompt, running_time, sample_fn.device)
 
 
 @hydra.main(config_path="configs")

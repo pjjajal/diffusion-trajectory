@@ -39,6 +39,7 @@ def handle_input(img: torch.Tensor | np.ndarray, skip: bool = False) -> Image:
 ###
 ### Return callable which computes total fitness score
 ###
+@torch.no_grad()
 def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Callable:
     assert len(fitness_fns) == len(weights)
     fitness = lambda img: sum(

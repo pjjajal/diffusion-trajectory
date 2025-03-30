@@ -1,13 +1,13 @@
 defaults:
   - override hydra/job_logging: none
 
-seed: 5324
+seed: 42
 
 benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 15 # int > 0
+  for_steps: 30 # int > 0
   wandb:
     active: true
     project: "inference-diffusion-noise-optim"
@@ -69,9 +69,9 @@ fitness:
       top_k: 15
     hpsv2:
       weight: 1.0
-      active: false
-    imagereward:
       active: true
+    imagereward:
+      active: false
       weight: 1.0
 
 noise_injection:
@@ -87,9 +87,9 @@ solver:
     mean: 0.0
     std: 1.0
   cmaes:
-    stdev_init: 1.5
+    stdev_init: 0.2
     separable: true
-    center_init: null  # null | ["latents"]
+    center_init: "latents"  # null | ["latents"]
     csa_squared: true
   snes:
     stdev_init: 1.5
@@ -108,10 +108,10 @@ solver:
       cross_over_rate: 0.2
       num_points: 4
   cosyne:
-    popsize: 16
-    tournament_size: 16
-    mutation_probability: 0.5
-    mutation_stdev: 0.5
+    popsize: 32
+    tournament_size: 32
+    mutation_probability: 0.75
+    mutation_stdev: 1.0
     permute_all: true
-    elitism_ratio: 0.1
+    elitism_ratio: 0.50
     eta: null

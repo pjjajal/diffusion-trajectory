@@ -13,16 +13,28 @@ def rotational_transform(
     mean_scale=1,
     dtype=torch.float32,
 ):
-    b, c, h, w = latent_shape
-    # this is equal to the mean and a covariance matrix, that is [c] and [c, c] respectively.
-    # thus we must apply the transformation to the channel dimension of the latent space.
-    solution_length = c + c**2
-    centroid = (
-        center
-        if center is not None
-        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=sample_fn.device)
-    )
+    if len(latent_shape) == 4:
+        b, c, h, w = latent_shape
+        solution_length = c * h * w
+        # this is equal to the mean and a covariance matrix, that is [c] and [c, c] respectively.
+        # thus we must apply the transformation to the channel dimension of the latent space.
+        solution_length = c + c**2
+        centroid = (
+            center
+            if center is not None
+            else torch.zeros((b, c, h, w)).to(dtype=dtype, device=sample_fn.device)
+        )
+    elif len(latent_shape) == 3:
+        b, l, c = latent_shape
+        solution_length = l * c
+        solution_length = c + c**2
+        centroid = (
+            center
+            if center is not None
+            else torch.zeros((b, l, c)).to(dtype=dtype, device=sample_fn.device)
+        )
 
+    
     def _inner_fn(x):
         device = centroid.device
         x = x.reshape(-1, c + c**2)
@@ -32,11 +44,17 @@ def rotational_transform(
         # QR decomposition to get the rotation matrix.
         rot, scaling = torch.linalg.qr(cov)
         # unsqueeze so that we can broadcast the mean and rotation matrix to the correct shape.
-        mean = torch.Tensor(mean).to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+        if len(latent_shape) == 3:
+            mean = torch.Tensor(mean).to(device, dtype=dtype).unsqueeze(1)
+        else:
+            mean = torch.Tensor(mean).to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
         rot = torch.Tensor(rot).to(device, dtype=dtype)
 
         # rotate, translate and find the difference between the original and the rotated + translated version.
-        x = einsum(centroid, rot, "b c h w, p c1 c -> p c1 h w")
+        if len(latent_shape) == 4:
+            x = einsum(centroid, rot, "b c h w, p c1 c -> p c1 h w")
+        elif len(latent_shape) == 3:
+            x = einsum(centroid, rot, "b l c, p c1 c -> p l c1")
         x = x + mean_scale * mean - centroid
         samples = sample_fn(x)
         return samples
@@ -67,15 +85,26 @@ def svd_rot_transform(
     bound=0.05,
     dtype=torch.float32,
 ):
-    b, c, h, w = latent_shape
-    # this is equal to the mean and a covariance matrix, that is [c] and [c, c] respectively.
-    # thus we must apply the transformation to the channel dimension of the latent space.
-    solution_length = c + c**2
-    centroid = (
-        center
-        if center is not None
-        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=sample_fn.device)
-    )
+    if len(latent_shape) == 4:
+        b, c, h, w = latent_shape
+        solution_length = c * h * w
+        # this is equal to the mean and a covariance matrix, that is [c] and [c, c] respectively.
+        # thus we must apply the transformation to the channel dimension of the latent space.
+        solution_length = c + c**2
+        centroid = (
+            center
+            if center is not None
+            else torch.zeros((b, c, h, w)).to(dtype=dtype, device=sample_fn.device)
+        )
+    elif len(latent_shape) == 3:
+        b, l, c = latent_shape
+        solution_length = l * c
+        solution_length = c + c**2
+        centroid = (
+            center
+            if center is not None
+            else torch.zeros((b, l, c)).to(dtype=dtype, device=sample_fn.device)
+        )
 
     def _inner_fn(x):
         device = centroid.device
@@ -91,7 +120,10 @@ def svd_rot_transform(
         rot = torch.Tensor(rot).to(device, dtype=dtype)
 
         # rotate, translate and find the difference between the original and the rotated + translated version.
-        x = einsum(centroid, rot, "b c h w, p c1 c -> p c1 h w")
+        if len(latent_shape) == 4:
+            x = einsum(centroid, rot, "b c h w, p c1 c -> p c1 h w")
+        elif len(latent_shape) == 3:
+            x = einsum(centroid, rot, "b l c, p c1 c -> p l c1")
         x = x + mean_scale * mean - centroid
         samples = sample_fn(x)
         return samples
@@ -348,11 +380,18 @@ def noise(
     device,
     dtype=torch.float32,
 ):
-    b, c, h, w = latent_shape
-    solution_length = c * h * w
+    if len(latent_shape) == 4:
+        b, c, h, w = latent_shape
+        solution_length = c * h * w
+    elif len(latent_shape) == 3:
+        b, l, d = latent_shape
+        solution_length = l * d
 
     def _inner_fn(x):
-        x = x.reshape(-1, c, h, w).to(device, dtype=dtype)
+        if len(latent_shape) == 4:
+            x = x.reshape(-1, c, h, w).to(device, dtype=dtype)
+        elif len(latent_shape) == 3:
+            x = x.reshape(-1, l, d).to(device, dtype=dtype)
         samples = sample_fn(noise_injection=x)
         return samples
 

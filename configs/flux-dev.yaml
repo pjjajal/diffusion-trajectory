@@ -7,7 +7,7 @@ benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 15 # int > 0
+  for_steps: 10 # int > 0
   wandb:
     active: true
     project: "inference-diffusion-noise-optim"
@@ -38,14 +38,14 @@ pipeline:
   quantize: false
   device: "cuda"
   quantize_cfg:
-    bits: "4bit" # ["4bit", "8bit"]
+    bits: "8bit" # ["4bit", "8bit"]
 
 fitness:
   objective: "max" # ["max", "min"]
   device: "cuda"
-  dtype: "float16"
+  dtype: "bfloat16"
   cache_dir: null
-  problem_splits: 4
+  problem_splits: 8
   fns:
     brightness:
       weight: 1.0
@@ -87,7 +87,7 @@ solver:
     mean: 0.0
     std: 1.0
   cmaes:
-    stdev_init: 1.5
+    stdev_init: 0.1
     separable: true
     center_init: null  # null | ["latents"]
     csa_squared: true
@@ -95,7 +95,7 @@ solver:
     stdev_init: 1.5
     center_init: "latents" # null | ["latents"]
   ga:
-    popsize: 4
+    popsize: 8
     re_evaluate: true
     mutation:
       active: true
@@ -108,10 +108,10 @@ solver:
       cross_over_rate: 0.2
       num_points: 4
   cosyne:
-    popsize: 16
-    tournament_size: 16
+    popsize: 8
+    tournament_size: 8
     mutation_probability: 0.5
-    mutation_stdev: 0.5
+    mutation_stdev: 0.1
     permute_all: true
-    elitism_ratio: 0.1
+    elitism_ratio: 0.25
     eta: null

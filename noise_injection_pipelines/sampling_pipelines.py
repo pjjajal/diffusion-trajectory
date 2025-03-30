@@ -631,7 +631,6 @@ class FluxSamplingPipeline(SamplingPipeline):
             prompt=prompt,
             prompt_2=None,
             device=self.device,
-            do_classifier_free_guidance=self.classifier_free_guidance,
             num_images_per_prompt=1,
         )
         return (
