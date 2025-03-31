@@ -26,7 +26,8 @@ from diffusers import (
     UNet2DConditionModel,
     PixArtAlphaPipeline,
     FluxPipeline,
-    FluxTransformer2DModel
+    FluxTransformer2DModel,
+    DDIMScheduler,
 )
 from transformers import BitsAndBytesConfig as BitsAndBytesConfig, T5EncoderModel
 from diffusers.utils import export_to_gif, numpy_to_pil
@@ -72,7 +73,6 @@ from noise_injection_pipelines import (
 from noise_injection_pipelines.initialization import randn_intialization
 
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -107,6 +107,7 @@ def create_pipeline(pipeline_cfg: DictConfig):
             cache_dir=pipeline_cfg.cache_dir,
             use_safetensors=True,
         ).to(pipeline_cfg.device)
+        pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
     elif pipeline_cfg.type == "sdxl":
         unet = None
         if pipeline_cfg.quantize:
@@ -211,8 +212,7 @@ def create_pipeline(pipeline_cfg: DictConfig):
             load_in_4bit = pipeline_cfg.quantize_cfg.bits == "4bit"
             load_in_8bit = pipeline_cfg.quantize_cfg.bits == "8bit"
             text_quant_config = BitsAndBytesConfig(
-                load_in_4bit=load_in_4bit,
-                load_in_8bit=load_in_8bit
+                load_in_4bit=load_in_4bit, load_in_8bit=load_in_8bit
             )
             text_encoder = T5EncoderModel.from_pretrained(
                 pipeline_cfg.model_id,
@@ -275,7 +275,7 @@ def create_sampler(
             height=cfg.pipeline.height,
             width=cfg.pipeline.width,
         )
-    if cfg.pipeline.type == "sdxl":
+    elif cfg.pipeline.type == "sdxl":
         return SDXLSamplingPipeline(
             pipeline=pipeline,
             prompt="",
@@ -690,10 +690,10 @@ def main(cfg: DictConfig):
             )
 
         if cfg.benchmark.save_images.active:
-            if isinstance(x['prompt'], list):
-                prompt_name = x['prompt'][0][:10]
+            if isinstance(x["prompt"], list):
+                prompt_name = x["prompt"][0][:10]
             else:
-                prompt_name = x['prompt'][:10]
+                prompt_name = x["prompt"][:10]
             img.save(
                 os.path.join(
                     cfg.benchmark.save_images.save_dir,
