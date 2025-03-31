@@ -22,6 +22,7 @@ from diffusers import (
     SD3Transformer2DModel,
     StableDiffusion3Pipeline,
     StableDiffusionXLPipeline,
+    StableDiffusionPipeline,
     UNet2DConditionModel,
     PixArtAlphaPipeline,
     FluxPipeline,
@@ -57,6 +58,7 @@ from fitness import (
 )
 from noise_injection_pipelines import (
     DiffusionSample,
+    SDSamplingPipeline,
     LCMSamplingPipeline,
     PixArtSigmaSamplingPipeline,
     SD3SamplingPipeline,
@@ -94,7 +96,18 @@ def flatten_dict(d: DictConfig):
 
 
 def create_pipeline(pipeline_cfg: DictConfig):
-    if pipeline_cfg.type == "sdxl":
+    if pipeline_cfg.type == "sd":
+        unet = None
+        if pipeline_cfg.quantize:
+            pass
+        pipeline = StableDiffusionPipeline.from_pretrained(
+            pipeline_cfg.model_id,
+            device_map=pipeline_cfg.device_map,
+            torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
+            cache_dir=pipeline_cfg.cache_dir,
+            use_safetensors=True,
+        ).to(pipeline_cfg.device)
+    elif pipeline_cfg.type == "sdxl":
         unet = None
         if pipeline_cfg.quantize:
             load_in_4bit = pipeline_cfg.quantize_cfg.bits == "4bit"
@@ -250,6 +263,18 @@ def create_sampler(
     pipeline: DiffusionPipeline,
     generator: torch.Generator,
 ):
+    if cfg.pipeline.type == "sd":
+        return SDSamplingPipeline(
+            pipeline=pipeline,
+            prompt="",
+            num_inference_steps=cfg.pipeline.num_inference_steps,
+            classifier_free_guidance=cfg.pipeline.classifier_free_guidance,
+            guidance_scale=cfg.pipeline.guidance_scale,
+            generator=generator,
+            add_noise=cfg.noise_injection.add_noise,
+            height=cfg.pipeline.height,
+            width=cfg.pipeline.width,
+        )
     if cfg.pipeline.type == "sdxl":
         return SDXLSamplingPipeline(
             pipeline=pipeline,

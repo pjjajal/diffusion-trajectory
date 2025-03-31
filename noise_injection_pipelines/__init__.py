@@ -12,5 +12,6 @@ from .sampling_pipelines import (
     PixArtSigmaSamplingPipeline,
     LCMSamplingPipeline,
     PixArtAlphaSamplingPipeline,
-    FluxSamplingPipeline
+    FluxSamplingPipeline,
+    SDSamplingPipeline
 )

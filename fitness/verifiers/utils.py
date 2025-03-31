@@ -1,3 +1,6 @@
+# THIS CODE IS BORROWED FROM SAYAK PAUL'S https://github.com/sayakpaul/tt-scale-flux/tree/main
+
+
 import torch
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers import FluxPipeline, LTXPipeline

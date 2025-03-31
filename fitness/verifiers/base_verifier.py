@@ -1,3 +1,5 @@
+# THIS CODE IS BORROWED FROM SAYAK PAUL'S https://github.com/sayakpaul/tt-scale-flux/tree/main
+
 import os
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

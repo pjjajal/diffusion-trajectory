@@ -1,3 +1,5 @@
+# THIS CODE IS BORROWED FROM SAYAK PAUL'S https://github.com/sayakpaul/tt-scale-flux/tree/main
+
 from google import genai
 from google.genai import types
 import typing_extensions as typing
