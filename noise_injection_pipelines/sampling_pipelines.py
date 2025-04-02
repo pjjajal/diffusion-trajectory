@@ -350,13 +350,11 @@ class PixArtSigmaSamplingPipeline(SamplingPipeline):
         ) = self.embed_text(prompt)
 
     @torch.inference_mode()
-    def __call__(self, noise_injection=None, noise_transform=None):
+    def __call__(self, noise_injection=None):
         # noise injection happens here
         latents = self.latents
         if noise_injection is not None:
             latents = latents + noise_injection if self.add_noise else noise_injection
-        if noise_transform is not None:
-            latents = noise_transform(latents)
         latents = latents.to(self.device, dtype=self.pipeline.dtype)
         images = self.pipeline(
             height=self.height,
@@ -462,13 +460,11 @@ class PixArtAlphaSamplingPipeline(SamplingPipeline):
         ) = self.embed_text(prompt)
 
     @torch.inference_mode()
-    def __call__(self, noise_injection=None, noise_transform=None):
+    def __call__(self, noise_injection=None):
         # noise injection happens here
         latents = self.latents
         if noise_injection is not None:
             latents = latents + noise_injection if self.add_noise else noise_injection
-        if noise_transform is not None:
-            latents = noise_transform(latents)
         latents = latents.to(self.device, dtype=self.pipeline.dtype)
         images = self.pipeline(
             height=self.height,
@@ -566,13 +562,11 @@ class LCMSamplingPipeline(SamplingPipeline):
         ) = self.embed_text(prompt)
 
     @torch.inference_mode()
-    def __call__(self, noise_injection=None, noise_transform=None):
+    def __call__(self, noise_injection=None):
         # noise injection happens here
         latents = self.latents
         if noise_injection is not None:
             latents = latents + noise_injection if self.add_noise else noise_injection
-        if noise_transform is not None:
-            latents = noise_transform(latents)
         latents = latents.to(self.device, dtype=self.pipeline.dtype)
         images = self.pipeline(
             height=self.height,
@@ -667,13 +661,11 @@ class FluxSamplingPipeline(SamplingPipeline):
         ) = self.embed_text(prompt)
 
     @torch.inference_mode()
-    def __call__(self, noise_injection=None, noise_transform=None):
+    def __call__(self, noise_injection=None):
         # noise injection happens here
         latents = self.latents
         if noise_injection is not None:
             latents = latents + noise_injection if self.add_noise else noise_injection
-        if noise_transform is not None:
-            latents = noise_transform(latents)
         latents = latents.to(self.device, dtype=self.pipeline.dtype)
         images = self.pipeline(
             height=self.height,
@@ -768,10 +760,6 @@ class SDSamplingPipeline(SamplingPipeline):
         # noise injection happens here
         latents = self.latents
         if noise_injection is not None:
-            # this scales the noise injection to the initial noise sigma
-            # (this gets undone by the .prepare_latents() method of the pipeline)
-            # this required otherwise the noise injection will be too large
-            noise_injection = noise_injection / self.pipeline.scheduler.init_noise_sigma
             latents = latents + noise_injection if self.add_noise else noise_injection
         latents = latents.to(self.device, dtype=self.pipeline.dtype)
         images = self.pipeline(

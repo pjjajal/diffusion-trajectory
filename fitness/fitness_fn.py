@@ -1,28 +1,45 @@
-import torch
-import torch.nn as nn
-import numpy as np
-from diffusers.utils import pt_to_pil, numpy_to_pil
-from transformers import CLIPProcessor, CLIPImageProcessor, CLIPModel, AutoModel, AutoProcessor, AutoTokenizer
-from .hf_gradient_processors import as_tensor_gradient_flow_clip_image_processor
+import io
 import os
 from typing import *
+
+import numpy as np
+import torch
+import torch.nn as nn
+from diffusers.utils import numpy_to_pil, pt_to_pil
 from PIL.Image import Image
+from transformers import (
+    AutoModel,
+    AutoProcessor,
+    AutoTokenizer,
+    CLIPImageProcessor,
+    CLIPModel,
+    CLIPProcessor,
+)
+
+from .hf_gradient_processors import as_tensor_gradient_flow_clip_image_processor
 
 try:
     import hpsv2
+
     HPSV21_CHECKPOINT_NAME = "HPS_v2.1_compressed.pt"
 except ImportError:
-    print(f"HPSv2 not able to be imported, see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison for install")
-    print(f"Please download the model from https://huggingface.co/tgxs002/HPSv2 and place it in the cache_dir/")
+    print(
+        f"HPSv2 not able to be imported, see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison for install"
+    )
+    print(
+        f"Please download the model from https://huggingface.co/tgxs002/HPSv2 and place it in the cache_dir/"
+    )
 
 try:
     import ImageReward
 except ImportError:
-    print(f"Imagereward not able to be imported, see https://github.com/THUDM/ImageReward/tree/main for install")
+    print(
+        f"Imagereward not able to be imported, see https://github.com/THUDM/ImageReward/tree/main for install"
+    )
 
 
 ###
-### Type conversion helper 
+### Type conversion helper
 ###
 def handle_input(img: torch.Tensor | np.ndarray, skip: bool = False) -> Image:
     if skip:
@@ -49,15 +66,24 @@ def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Ca
 
 
 ###
-### CLIP fitness 
+### CLIP fitness
 ###
 def clip_fitness_fn(
-    clip_model_name, prompt, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
+    clip_model_name,
+    prompt,
+    cache_dir=None,
+    device: str = "cpu",
+    dtype=torch.float32,
+    **kwargs,
 ) -> Callable:
     processor = CLIPProcessor.from_pretrained(clip_model_name, cache_dir=cache_dir)
-    clip_model = CLIPModel.from_pretrained(
-        clip_model_name, cache_dir=cache_dir, torch_dtype=dtype
-    ).eval().to(device=device)
+    clip_model = (
+        CLIPModel.from_pretrained(
+            clip_model_name, cache_dir=cache_dir, torch_dtype=dtype
+        )
+        .eval()
+        .to(device=device)
+    )
 
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
         pil_imgs = handle_input(img)
@@ -77,7 +103,11 @@ def clip_fitness_fn(
 ### Need to manually download https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/6934dd81792f086e613a121dbce43082cb8be85e/sac%2Blogos%2Bava1-l14-linearMSE.pth to cache_dir/
 ### Adapted for use with Huggingface-hosted CLIP instead of original CLIP package (import clip)
 def aesthetic_fitness_fn(
-    cache_dir: str = None, device: str = "cpu", dtype=torch.float32, gradient_flow: bool = False, **kwargs
+    cache_dir: str = None,
+    device: str = "cpu",
+    dtype=torch.float32,
+    gradient_flow: bool = False,
+    **kwargs,
 ) -> Callable:
     class AestheticMLP(nn.Module):
         def __init__(self, input_size: int):
@@ -107,15 +137,29 @@ def aesthetic_fitness_fn(
 
     ### Load CLIP model and processor
     processor = CLIPProcessor(
-        as_tensor_gradient_flow_clip_image_processor(
-            CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cache_dir)
-        ) if gradient_flow else CLIPImageProcessor.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cache_dir),
-        AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cache_dir)
+        (
+            as_tensor_gradient_flow_clip_image_processor(
+                CLIPImageProcessor.from_pretrained(
+                    "openai/clip-vit-large-patch14", cache_dir=cache_dir
+                )
+            )
+            if gradient_flow
+            else CLIPImageProcessor.from_pretrained(
+                "openai/clip-vit-large-patch14", cache_dir=cache_dir
+            )
+        ),
+        AutoTokenizer.from_pretrained(
+            "openai/clip-vit-large-patch14", cache_dir=cache_dir
+        ),
     )
 
-    clip_model = CLIPModel.from_pretrained(
-        "openai/clip-vit-large-patch14", cache_dir=cache_dir, torch_dtype=dtype
-    ).eval().to(device=device)
+    clip_model = (
+        CLIPModel.from_pretrained(
+            "openai/clip-vit-large-patch14", cache_dir=cache_dir, torch_dtype=dtype
+        )
+        .eval()
+        .to(device=device)
+    )
 
     ### Load linear classifier
     aesthetic_mlp = AestheticMLP(768)
@@ -147,19 +191,36 @@ def aesthetic_fitness_fn(
 ### See https://huggingface.co/yuvalkirstain/PickScore_v1
 ###
 def pickscore_fitness_fn(
-    prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, gradient_flow: bool = False, **kwargs
+    prompt: str,
+    cache_dir=None,
+    device: str = "cpu",
+    dtype=torch.float32,
+    gradient_flow: bool = False,
+    **kwargs,
 ) -> Callable:
     ### Load model and processor
     processor = CLIPProcessor(
-         as_tensor_gradient_flow_clip_image_processor(
-             CLIPImageProcessor.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)
-         ) if gradient_flow else CLIPImageProcessor.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir),
-         AutoTokenizer.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)
+        (
+            as_tensor_gradient_flow_clip_image_processor(
+                CLIPImageProcessor.from_pretrained(
+                    "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
+                )
+            )
+            if gradient_flow
+            else CLIPImageProcessor.from_pretrained(
+                "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
+            )
+        ),
+        AutoTokenizer.from_pretrained(
+            "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
+        ),
     )
 
-    pick_model = AutoModel.from_pretrained(
-        "yuvalkirstain/PickScore_v1", cache_dir=cache_dir
-    ).eval().to(device=device)
+    pick_model = (
+        AutoModel.from_pretrained("yuvalkirstain/PickScore_v1", cache_dir=cache_dir)
+        .eval()
+        .to(device=device)
+    )
 
     def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
         img = handle_input(img, skip=gradient_flow)
@@ -202,7 +263,7 @@ def imagereward_fitness_fn(
     ### Load the model
     imagereward_model = ImageReward.load("ImageReward-v1.0", device=device)
     imagereward_model = imagereward_model.eval()
-    
+
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         img = handle_input(img)
         rewards = imagereward_model.score(prompt, img)
@@ -218,6 +279,7 @@ def hpsv2_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
     prompt = prompt[0] if isinstance(prompt, list) else prompt
+
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         img = handle_input(img)
         score = hpsv2.score(img, prompt, hps_version="v2.0")
@@ -228,6 +290,7 @@ def hpsv2_fitness_fn(
 
 def brightness(img: torch.Tensor | np.ndarray, **kwargs) -> float:
     pil_imgs = handle_input(img)
+    pil_imgs = [pil_imgs] if not isinstance(pil_imgs, list) else pil_imgs
     hsv_imgs = [pil_img.convert("HSV") for pil_img in pil_imgs]
     vs = [np.array(hsv_img.split()[-1]) for hsv_img in hsv_imgs]
     v = torch.tensor(np.mean(np.array(vs)) / 255.0).unsqueeze(0)
@@ -237,6 +300,7 @@ def brightness(img: torch.Tensor | np.ndarray, **kwargs) -> float:
 def relative_luminance(img: torch.Tensor | np.ndarray, **kwargs) -> torch.Tensor:
     weights = np.array([0.2126, 0.7152, 0.0722])
     pil_imgs = handle_input(img)
+    pil_imgs = [pil_imgs] if not isinstance(pil_imgs, list) else pil_imgs
     imgs = [np.array(pil_img) * weights for pil_img in pil_imgs]
     v = [np.mean(img, axis=(0, 1)).sum() / 255.0 for img in imgs]
     v = torch.tensor(v).unsqueeze(0)
@@ -296,3 +360,12 @@ class Novelty:
         score = self._compute_score(features, self.top_k)
         self.history = torch.cat([self.history, features])
         return score.unsqueeze(0)
+
+
+def jpeg_compressibility(img: Union[torch.Tensor, Image]) -> torch.Tensor:
+    img = handle_input(img)
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG", quality=95)
+    size = buffer.tell() / 1000  # size in KB
+    buffer.close()
+    return torch.Tensor([size])

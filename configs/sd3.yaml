@@ -1,13 +1,13 @@
 defaults:
   - override hydra/job_logging: none
 
-seed: 53435
+seed: 32132
 
 benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 10 # int > 0
+  for_steps: 15 # int > 0
   wandb:
     active: false
     project: "inference-diffusion-noise-optim"
@@ -19,8 +19,12 @@ dataset:
   name: "custom" # [drawbench, custom]
   cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
   prompts:
-    - Alice in a vibrant, dreamlike digital painting inside the Nemo Nautilus submarine.
-    - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
+    - "Closeup portrait of an ancient evil wizard with dramatic light, ethereal lake background, intricate runes, and mystical symbols, painted in a fantasy style"
+    # - "the Kremlin, digital art, painterly brushstrokes, vibrant color palette, dynamic composition, dramatic chiaroscuro, high resolution, sharp focus"
+    # - "Sydney Opera House, anime style, colorful, dynamic angles, detailed, bustling city, lively characters, exaggerated expressions, manga details"
+    # - "a bustling kitchen, vibrant color palette, dynamic anime style, Studio Ghibli aesthetics, detailed character interactions, warm golden hour light, playful exaggeration, high resolution, rich textures"
+    # - "8-bit movie poster for Mad Max with older Mel Gibson and younger female companion, pixelated title text, vibrant retro colors, blocky characters, and a pixel-perfect wasteland backdrop, dynamic perspective, high resolution, sharp focus, dramatic chiaroscuro lighting, energetic atmosphere"
+    # - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
 
 pipeline:
   type: "sd3" # ["sdxl", "sd3"]
@@ -45,9 +49,15 @@ fitness:
   device: "cuda"
   dtype: "float16"
   cache_dir: null
-  problem_splits: 4
+  problem_splits: 2
   fns:
     brightness:
+      weight: 1.0
+      active: false
+    relative_luminance:
+      weight: 1.0
+      active: false
+    jpeg_compressibility:
       weight: 1.0
       active: false
     clip:
@@ -64,7 +74,7 @@ fitness:
       prompt: null
     novelty:
       weight: 0.05
-      active: true
+      active: false
       model_name: "dino_base"
       top_k: 15
     hpsv2:
@@ -77,21 +87,20 @@ fitness:
 noise_injection:
   type: "noise" # ["rotational_transform", "svd_rot_transform", "noise"]
   add_noise: false
-  static_latents: true
-  mean_scale: 0.001
-  bound: 0.01
+  mean_scale: 0.000
+  bound: 0.1
 
 solver:
-  algorithm: "cmaes" # ["cmaes" , "snes", "ga", "cosyne"]
+  algorithm: "cosyne" # ["cmaes" , "snes", "ga", "cosyne"]
   initial_bounds: [-1, 1]
   initialization:
     mean: 0.0
     std: 1.0
   cmaes:
-    stdev_init: 0.5
-    separable: true
-    center_init: "latents" # null | ["latents"]
-    csa_squared: true
+    stdev_init: 10
+    separable: false
+    center_init: null # null | ["latents"]
+    csa_squared: false
   snes:
     stdev_init: 1.5
     center_init: "latents" # null | ["latents"]
@@ -109,10 +118,10 @@ solver:
       cross_over_rate: 0.2
       num_points: 4
   cosyne:
-    popsize: 10
-    tournament_size: 4
-    mutation_probability: 0.1
-    mutation_stdev: 0.1
-    permute_all: false
-    elitism_ratio: 0.2
+    popsize: 16
+    tournament_size: 1
+    mutation_probability: 1.0
+    mutation_stdev: 0.15
+    permute_all: true
+    elitism_ratio: 0.01
     eta: null

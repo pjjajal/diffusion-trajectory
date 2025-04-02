@@ -50,6 +50,12 @@ fitness:
     brightness:
       weight: 1.0
       active: false
+    relative_luminance:
+      weight: 1.0
+      active: true
+    jpeg_compressibility:
+      weight: 1.0
+      active: true
     clip:
       weight: 0.2
       active: true

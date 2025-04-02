@@ -56,6 +56,7 @@ from fitness import (
     imagereward_fitness_fn,
     pickscore_fitness_fn,
     relative_luminance,
+    jpeg_compressibility,
 )
 from noise_injection_pipelines import (
     DiffusionSample,
@@ -357,6 +358,12 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
     if fitness_cfg.fns.brightness.active:
         fitness_fns.append(brightness)
         weights.append(fitness_cfg.fns.brightness.weight)
+    if fitness_cfg.fns.relative_luminance.active:
+        fitness_fns.append(relative_luminance)
+        weights.append(fitness_cfg.fns.relative_luminance.weight)
+    if fitness_cfg.fns.jpeg_compressibility.active:
+        fitness_fns.append(jpeg_compressibility)
+        weights.append(fitness_cfg.fns.jpeg_compressibility.weight)
     if fitness_cfg.fns.clip.active:
         clip_prompt = prompt or fitness_cfg.fns.clip.prompt
         fitness_fns.append(
@@ -576,16 +583,6 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
         if benchmark_cfg.wandb.active:
             wandb_log(solver, step, img, prompt, running_time, sample_fn.device)
 
-        if benchmark_cfg.type == "till_time":
-            if running_time >= benchmark_cfg.till_time:
-                break
-        elif benchmark_cfg.type == "till_steps":
-            if step >= benchmark_cfg.for_steps:
-                break
-        elif benchmark_cfg.type == "till_reward":
-            if solver.best_eval > benchmark_cfg.till_reward:
-                break
-
         if benchmark_cfg.save_images.active:
             if isinstance(prompt, list):
                 prompt_name = prompt[0][:10]
@@ -596,6 +593,16 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
                     benchmark_cfg.save_images.save_dir, f"{prompt_name}_{step}.png"
                 )
             )
+
+        if benchmark_cfg.type == "till_time":
+            if running_time >= benchmark_cfg.till_time:
+                break
+        elif benchmark_cfg.type == "till_steps":
+            if step >= benchmark_cfg.for_steps:
+                break
+        elif benchmark_cfg.type == "till_reward":
+            if solver.best_eval > benchmark_cfg.till_reward:
+                break
 
     if benchmark_cfg.wandb.active:
         wandb_log(solver, step, img, prompt, running_time, sample_fn.device)
@@ -675,7 +682,7 @@ def main(cfg: DictConfig):
 
         # baseline
         baseline_img = sample_fn()
-        baseline_fitness = fitness_fn(baseline_img)
+        baseline_fitness = fitness_fn(baseline_img[0])
         img = baseline_img[0]
         if cfg.benchmark.wandb.active:
             wandb.log(
