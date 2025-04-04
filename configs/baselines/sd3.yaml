@@ -1,0 +1,94 @@
+defaults:
+  - override hydra/job_logging: none
+
+seed: 32132
+
+benchmark:
+  type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
+  till_time: 600 # seconds
+  till_reward: 0 # float > 0
+  for_steps: 15 # int > 0
+  wandb:
+    active: false
+    project: "inference-diffusion-noise-optim"
+  save_images:
+    active: true
+    save_dir: "./benchmark_runs"
+
+dataset:
+  name: "custom" # [drawbench, custom]
+  cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
+  prompts:
+    - "Closeup portrait of an ancient evil wizard with dramatic light, ethereal lake background, intricate runes, and mystical symbols, painted in a fantasy style"
+    # - "the Kremlin, digital art, painterly brushstrokes, vibrant color palette, dynamic composition, dramatic chiaroscuro, high resolution, sharp focus"
+    # - "Sydney Opera House, anime style, colorful, dynamic angles, detailed, bustling city, lively characters, exaggerated expressions, manga details"
+    # - "a bustling kitchen, vibrant color palette, dynamic anime style, Studio Ghibli aesthetics, detailed character interactions, warm golden hour light, playful exaggeration, high resolution, rich textures"
+    # - "8-bit movie poster for Mad Max with older Mel Gibson and younger female companion, pixelated title text, vibrant retro colors, blocky characters, and a pixel-perfect wasteland backdrop, dynamic perspective, high resolution, sharp focus, dramatic chiaroscuro lighting, energetic atmosphere"
+    # - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
+
+pipeline:
+  type: "sd3" # ["sdxl", "sd3"]
+  model_id: "stabilityai/stable-diffusion-3.5-medium"
+  height: 512
+  width: 512
+  num_inference_steps: 15
+  classifier_free_guidance: true
+  guidance_scale: 4.0
+  device_map: null
+  dtype: "float16"
+  cache_dir: null
+  xformers_mem_eff_attn: true
+  cpu_offload: true
+  quantize: false
+  device: "cuda"
+  quantize_cfg:
+    bits: "4bit" # ["4bit", "8bit"]
+
+fitness:
+  objective: "max" # ["max", "min"]
+  device: "cuda"
+  dtype: "float16"
+  cache_dir: null
+  problem_splits: 2
+  fns:
+    brightness:
+      weight: 1.0
+      active: false
+    relative_luminance:
+      weight: 1.0
+      active: false
+    jpeg_compressibility:
+      weight: 1.0
+      active: false
+    clip:
+      weight: 1.0
+      active: false
+      prompt: null
+      model_name: "openai/clip-vit-base-patch16"
+    aesthetic:
+      weight: 1.0
+      active: false
+    pick:
+      weight: 1.0
+      active: false
+      prompt: null
+    novelty:
+      weight: 0.05
+      active: false
+      model_name: "dino_base"
+      top_k: 15
+    hpsv2:
+      active: false
+      weight: 1.0
+    imagereward:
+      active: true
+      weight: 1.0
+
+noise_injection:
+  add_noise: false # DO NOT CHANGE
+
+solver:
+  algorithm: "random" # ["random", "zero_order"]
+  population: 10
+  split_size: 4 # this is used to break the batches.
+  threshold: 0.1
