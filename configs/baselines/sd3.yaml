@@ -19,11 +19,11 @@ dataset:
   name: "custom" # [drawbench, custom]
   cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
   prompts:
-    - "Closeup portrait of an ancient evil wizard with dramatic light, ethereal lake background, intricate runes, and mystical symbols, painted in a fantasy style"
+    - "8-bit movie poster for Mad Max with older Mel Gibson and younger female companion, pixelated title text, vibrant retro colors, blocky characters, and a pixel-perfect wasteland backdrop, dynamic perspective, high resolution, sharp focus, dramatic chiaroscuro lighting, energetic atmosphere"
+    # - "Closeup portrait of an ancient evil wizard with dramatic light, ethereal lake background, intricate runes, and mystical symbols, painted in a fantasy style"
     # - "the Kremlin, digital art, painterly brushstrokes, vibrant color palette, dynamic composition, dramatic chiaroscuro, high resolution, sharp focus"
     # - "Sydney Opera House, anime style, colorful, dynamic angles, detailed, bustling city, lively characters, exaggerated expressions, manga details"
     # - "a bustling kitchen, vibrant color palette, dynamic anime style, Studio Ghibli aesthetics, detailed character interactions, warm golden hour light, playful exaggeration, high resolution, rich textures"
-    # - "8-bit movie poster for Mad Max with older Mel Gibson and younger female companion, pixelated title text, vibrant retro colors, blocky characters, and a pixel-perfect wasteland backdrop, dynamic perspective, high resolution, sharp focus, dramatic chiaroscuro lighting, energetic atmosphere"
     # - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
 
 pipeline:
@@ -53,7 +53,7 @@ fitness:
   fns:
     brightness:
       weight: 1.0
-      active: false
+      active: true
     relative_luminance:
       weight: 1.0
       active: false
@@ -81,14 +81,14 @@ fitness:
       active: false
       weight: 1.0
     imagereward:
-      active: true
+      active: false
       weight: 1.0
 
 noise_injection:
   add_noise: false # DO NOT CHANGE
 
 solver:
-  algorithm: "random" # ["random", "zero_order"]
+  algorithm: "zero_order" # ["random", "zero_order"]
   population: 10
   split_size: 4 # this is used to break the batches.
-  threshold: 0.1
+  threshold: 0.95

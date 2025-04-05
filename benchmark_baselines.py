@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 
 import eval_datasets
 
-from .benchmark_hydra import (
+from benchmark_hydra import (
     DTYPE_MAP,
     create_fitness_fn,
     create_pipeline,
@@ -76,6 +76,7 @@ class ZeroOrderSearch:
         )
     
     def __call__(self, step, sample_fn):
+        print(self.latents.shape)
         neighbours = self.generate_neighbors(
             self.latents,
             threshold=self.threshold,
@@ -89,14 +90,17 @@ class ZeroOrderSearch:
             fitnesses.extend([self.fitness_fn(img) for img in imgs])
         
         base_fitness = fitnesses[0]
-        fitnesses = fitnesses[1:]
-        best_fitness = max(fitnesses)
+        new_fitnesses = fitnesses[1:]
+        best_fitness = np.max(new_fitnesses)
         if best_fitness > base_fitness:
             print("Pivoting Latent")
-            best_idx = fitnesses.index(best_fitness)
-            best_latent = latents[best_idx + 1]
-            self.latents = best_latent
-        
+            best_idx = fitnesses.index(best_fitness.item())
+            best_latent = latents[best_idx]
+            self.latents = best_latent.unsqueeze(0)
+        print(
+            f"Step {step}: best fitness {best_fitness:.4f}, mean fitness {np.mean(fitnesses):.4f}, median fitness {np.median(fitnesses):.4f}"
+        )
+        return latents, fitnesses
 
 
 
@@ -111,7 +115,7 @@ def random_search(step, sample_fn, fitness_fn, population, split_size):
         fitnesses.extend([fitness_fn(img) for img in imgs])
 
     print(
-        f"Step {step}: best fitness {max(fitnesses):.4f}, mean fitness {np.mean(fitnesses):.4f}, median fitness {np.median(fitnesses):.4f}"
+        f"Step {step}: best fitness {np.max(fitnesses):.4f}, mean fitness {np.mean(fitnesses):.4f}, median fitness {np.median(fitnesses):.4f}"
     )
     return latents, fitnesses
 
@@ -167,7 +171,7 @@ def benchmark(benchmark_cfg: DictConfig, sample_fn, searcher, prompt):
                 break
 
 
-@hydra.main(config_path="configs")
+@hydra.main(config_path="configs/baselines")
 def main(cfg: DictConfig):
     # set seeds
     # np.random.seed(cfg.seed)
@@ -262,7 +266,7 @@ def main(cfg: DictConfig):
                 population=cfg.solver.population,
                 split_size=cfg.solver.split_size,
                 threshold=cfg.solver.threshold,
-                sample_fn=sample_fn.latents,
+                latents=sample_fn.latents,
             )
 
         # run

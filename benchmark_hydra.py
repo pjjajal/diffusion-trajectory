@@ -70,6 +70,7 @@ from noise_injection_pipelines import (
     noise,
     rotational_transform,
     svd_rot_transform,
+    multi_axis_rotational_transform,
 )
 from noise_injection_pipelines.initialization import randn_intialization
 
@@ -440,6 +441,15 @@ def create_obj_fn(sample_fn, fitness_fn, cfg: DictConfig):
             bound=cfg.noise_injection.bound,
             dtype=sample_fn.pipeline.dtype,
         )
+    elif cfg.noise_injection.type == "multi_axis_rot":
+        obj_fn, inner_fn, centroid, solution_length = multi_axis_rotational_transform(
+            sample_fn=sample_fn,
+            fitness_fn=fitness_fn,
+            latent_shape=sample_fn.latents.shape,
+            center=sample_fn.latents,
+            mean_scale=cfg.noise_injection.mean_scale,
+            dtype=sample_fn.pipeline.dtype,
+        )
     elif cfg.noise_injection.type == "noise":
         obj_fn, inner_fn, centroid, solution_length = noise(
             sample_fn=sample_fn,
@@ -471,8 +481,11 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
         )
         return SNES(
             problem=problem,
-            stdev_init=solver_cfg.snes.stdev_init,
+            radius_init=solver_cfg.snes.radius_init,
             center_init=center_init,
+            center_learning_rate=solver_cfg.snes.center_learning_rate,
+            optimizer=solver_cfg.snes.optimizer,
+            popsize=solver_cfg.snes.popsize,
         )
     elif solver_cfg.algorithm == "ga":
         operators = []

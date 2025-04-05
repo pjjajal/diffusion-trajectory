@@ -7,7 +7,7 @@ benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 15 # int > 0
+  for_steps: 30 # int > 0
   wandb:
     active: false
     project: "inference-diffusion-noise-optim"
@@ -85,25 +85,28 @@ fitness:
       weight: 1.0
 
 noise_injection:
-  type: "noise" # ["rotational_transform", "svd_rot_transform", "noise"]
+  type: "noise" # ["rotational_transform", "svd_rot_transform", "noise", "multi_axis_rot"]
   add_noise: false
-  mean_scale: 0.000
+  mean_scale: 0.0001
   bound: 0.1
 
 solver:
-  algorithm: "cosyne" # ["cmaes" , "snes", "ga", "cosyne"]
+  algorithm: "snes" # ["cmaes" , "snes", "ga", "cosyne"]
   initial_bounds: [-1, 1]
   initialization:
     mean: 0.0
     std: 1.0
   cmaes:
-    stdev_init: 10
-    separable: false
+    stdev_init: 0.1
+    separable: true
     center_init: null # null | ["latents"]
-    csa_squared: false
+    csa_squared: true
   snes:
-    stdev_init: 1.5
+    radius_init: 50
+    center_learning_rate: 3
+    optimizer: "clipup" # ["adam", "clipup", "null"]
     center_init: "latents" # null | ["latents"]
+    popsize: 16
   ga:
     popsize: 10
     re_evaluate: false

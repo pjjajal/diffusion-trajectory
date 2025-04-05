@@ -2,6 +2,7 @@ import torch
 from einops import einsum
 from .diffusion_pt import DiffusionSample
 from collections import deque
+import numpy as np
 
 
 # this function parameterizes the noise as the difference between the orginal latent and a rotated + translated version of it.
@@ -34,7 +35,6 @@ def rotational_transform(
             else torch.zeros((b, l, c)).to(dtype=dtype, device=sample_fn.device)
         )
 
-    
     def _inner_fn(x):
         device = centroid.device
         x = x.reshape(-1, c + c**2)
@@ -47,7 +47,9 @@ def rotational_transform(
         if len(latent_shape) == 3:
             mean = torch.Tensor(mean).to(device, dtype=dtype).unsqueeze(1)
         else:
-            mean = torch.Tensor(mean).to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+            mean = (
+                torch.Tensor(mean).to(device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+            )
         rot = torch.Tensor(rot).to(device, dtype=dtype)
 
         # rotate, translate and find the difference between the original and the rotated + translated version.
@@ -139,7 +141,6 @@ def multi_axis_rotational_transform(
     sample_fn,
     fitness_fn,
     latent_shape,
-    device,
     center=None,
     mean_scale=1,
     dtype=torch.float32,
@@ -151,13 +152,14 @@ def multi_axis_rotational_transform(
     centroid = (
         center
         if center is not None
-        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=device)
+        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=sample_fn.device)
     )
     slice_length_c = c + c**2
     slice_length_h = h + h**2 + slice_length_c
     slice_length_w = w + w**2 + slice_length_h
 
     def _inner_fn(x):
+        device = centroid.device
         x = x.reshape(-1, solution_length)
         # slice out the mean and covariance matrix
         axis_c = x[:, :slice_length_c]
@@ -332,6 +334,7 @@ def rotational_transform_inject_multiple(
 
     return _fitness, _inner_fn, centroid, solution_length
 
+
 def noise(
     sample_fn,
     fitness_fn,
@@ -409,7 +412,7 @@ class StatefulNoise:
         self.img_queue.extend(samples)
         self.fitness_queue.extend(fitness)
         return torch.cat(fitness, dim=0)
-    
+
     def get_best_img(self):
         argmax = self.fitness_queue.index(max(self.fitness_queue))
         return self.img_queue[argmax]
