@@ -712,8 +712,6 @@ class SDSamplingPipeline(SamplingPipeline):
         (
             self.prompt_embeds,
             self.negative_prompt_embeds,
-            self.pooled_prompt_embeds,
-            self.negative_pooled_prompt_embeds,
         ) = self.embed_text(prompt)
         self.latents = self.generate_latents()
 

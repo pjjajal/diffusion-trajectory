@@ -108,6 +108,7 @@ def create_pipeline(pipeline_cfg: DictConfig):
             torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
             cache_dir=pipeline_cfg.cache_dir,
             use_safetensors=True,
+            safety_checker=None
         ).to(pipeline_cfg.device)
         pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
     elif pipeline_cfg.type == "sdxl":

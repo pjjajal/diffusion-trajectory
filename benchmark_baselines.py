@@ -18,6 +18,7 @@ from benchmark_hydra import (
     create_sampler,
     flatten_dict,
 )
+from tqdm import tqdm
 
 
 def measure_torch_device_memory_used_mb(device: torch.device) -> float:
@@ -218,7 +219,7 @@ def main(cfg: DictConfig):
     else:
         data_iter = dataset
 
-    for x in data_iter:
+    for x in tqdm(data_iter):
         sample_fn.regenerate_latents()
         sample_fn.rembed_text(x["prompt"])
         print(x["prompt"])

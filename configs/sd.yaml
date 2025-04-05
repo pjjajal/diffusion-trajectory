@@ -7,7 +7,7 @@ benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 30 # int > 0
+  for_steps: 15 # int > 0
   wandb:
     active: true
     project: "inference-diffusion-noise-optim"
@@ -34,7 +34,7 @@ pipeline:
   dtype: "float16"
   cache_dir: null
   xformers_mem_eff_attn: false
-  cpu_offload: true
+  cpu_offload: false
   quantize: false
   device: "cuda"
   quantize_cfg:
@@ -81,13 +81,13 @@ fitness:
       weight: 1.0
 
 noise_injection:
-  type: "noise" # ["rotational_transform", "svd_rot_transform", "noise"]
-  add_noise: false
+  type: "rotational_transform" # ["rotational_transform", "svd_rot_transform", "noise"]
+  add_noise: True
   mean_scale: 0.01
   bound: 0.1
 
 solver:
-  algorithm: "cosyne" # ["cmaes" , "snes", "ga", "cosyne"]
+  algorithm: "snes" # ["cmaes" , "snes", "ga", "cosyne"]
   initial_bounds: [-1, 1]
   initialization:
     mean: 0.0
@@ -99,7 +99,7 @@ solver:
     csa_squared: true
   snes:
     stdev_init: 1.5
-    center_init: "latents" # null | ["latents"]
+    center_init: null # null | ["latents"]
   ga:
     popsize: 4
     re_evaluate: true
@@ -114,10 +114,10 @@ solver:
       cross_over_rate: 0.2
       num_points: 4
   cosyne:
-    popsize: 32
-    tournament_size: 32
-    mutation_probability: 0.75
-    mutation_stdev: 1.0
+    popsize: 16
+    tournament_size: 12
+    mutation_probability: 0.5
+    mutation_stdev: 0.5
     permute_all: true
-    elitism_ratio: 0.50
+    elitism_ratio: 0.15
     eta: null

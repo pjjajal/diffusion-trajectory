@@ -27,17 +27,17 @@ dataset:
     # - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
 
 pipeline:
-  type: "sd3" # ["sdxl", "sd3"]
-  model_id: "stabilityai/stable-diffusion-3.5-medium"
-  height: 512
-  width: 512
-  num_inference_steps: 28
+  type: "pixart-alpha" # ["sdxl", "sd3"]
+  model_id: "PixArt-alpha/PixArt-LCM-XL-2-1024-MS"
+  height: 1024
+  width: 1024
+  num_inference_steps: 4
   classifier_free_guidance: true
-  guidance_scale: 4.5
+  guidance_scale: 0.0
   device_map: null
   dtype: "float16"
-  cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
-  xformers_mem_eff_attn: true
+  cache_dir: null
+  xformers_mem_eff_attn: false
   cpu_offload: true
   quantize: false
   device: "cuda"
