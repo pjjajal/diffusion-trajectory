@@ -7,5 +7,7 @@ def rotation_initalization(values, solution_length, latents_shape, stdev=0.1):
     values +=  torch.randn(values.shape, device=values.device, dtype=values.dtype) * stdev
     return values
 
-def randn_intialization(values, mean=0, stdev=1):
+def randn_intialization(values, mean=0, stdev=1, initial=None):
     values.normal_(mean, stdev)
+    if initial is not None:
+        values[0] = initial

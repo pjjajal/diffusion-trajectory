@@ -688,6 +688,7 @@ def main(cfg: DictConfig):
                 randn_intialization,
                 mean=cfg.solver.initialization.mean,
                 stdev=cfg.solver.initialization.std,
+                initial=centroid.flatten().cpu() if cfg.solver.algorithm == "cosyne" else None,
             ),
         )
         solver = create_solver(problem, centroid, cfg.solver)

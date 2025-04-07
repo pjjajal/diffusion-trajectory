@@ -93,8 +93,9 @@ class ZeroOrderSearch:
         base_fitness = fitnesses[0]
         new_fitnesses = fitnesses[1:]
         best_fitness = np.max(new_fitnesses)
-        if best_fitness > base_fitness:
-            print("Pivoting Latent")
+        print("Best fitness: ", best_fitness, "base fitness: ", base_fitness)
+        if best_fitness > base_fitness.item():
+            print("Pivoting Latent, best fitness: ", best_fitness, "base fitness: ", base_fitness)
             best_idx = fitnesses.index(best_fitness.item())
             best_latent = latents[best_idx]
             self.latents = best_latent.unsqueeze(0)
