@@ -104,7 +104,7 @@ def create_pipeline(pipeline_cfg: DictConfig):
             use_safetensors=True,
             safety_checker=None
         ).to(pipeline_cfg.device)
-        pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
+        # pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
     elif pipeline_cfg.type == "sdxl":
         unet = None
         if pipeline_cfg.quantize:
