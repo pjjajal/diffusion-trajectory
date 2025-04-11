@@ -111,6 +111,9 @@ solver:
     popsize: 16
     center_init: "latents" # null | ["latents"]
     center_learning_rate: 3
+    stdev_learning_rate: 1
+    stdev_init: 1.0
+    radius_init: null 
   cosyne:
     popsize: 16
     tournament_size: 2

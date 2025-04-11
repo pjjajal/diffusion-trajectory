@@ -490,8 +490,11 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
             problem=problem,
             popsize=solver_cfg.pgpe.popsize,
             center_learning_rate=solver_cfg.pgpe.center_learning_rate,
+            stdev_learning_rate=solver_cfg.pgpe.stdev_learning_rate,
+            center_init=center_init,
+            stdev_init=solver_cfg.pgpe.stdev_init,
+            radius_init=solver_cfg.pgpe.radius_init,
         )
-        pass
     elif solver_cfg.algorithm == "cosyne":
         return Cosyne(
             problem=problem,
