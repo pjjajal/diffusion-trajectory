@@ -32,14 +32,8 @@ from diffusers import (
 from transformers import BitsAndBytesConfig as BitsAndBytesConfig, T5EncoderModel
 from diffusers.utils import export_to_gif, numpy_to_pil
 from einops import einsum
-from evotorch.algorithms import CMAES, SNES, GeneticAlgorithm, Cosyne
+from evotorch.algorithms import CMAES, SNES, Cosyne, PGPE
 from evotorch import Problem
-from evotorch.operators import (
-    GaussianMutation,
-    OnePointCrossOver,
-    MultiPointCrossOver,
-    TwoPointCrossOver,
-)
 from evotorch.logging import StdOutLogger
 from omegaconf import DictConfig
 from PIL.Image import Image
@@ -488,49 +482,16 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
             optimizer=solver_cfg.snes.optimizer,
             popsize=solver_cfg.snes.popsize,
         )
-    elif solver_cfg.algorithm == "ga":
-        operators = []
-        if solver_cfg.ga.mutation.active:
-            operators.append(
-                GaussianMutation(
-                    problem=problem,
-                    stdev=solver_cfg.ga.mutation.stdev,
-                    mutation_probability=solver_cfg.ga.mutation.mutation_probability,
-                )
-            )
-        if solver_cfg.ga.crossover.active:
-            if solver_cfg.ga.crossover.type == "one_point":
-                operators.append(
-                    OnePointCrossOver(
-                        problem=problem,
-                        tournament_size=solver_cfg.ga.crossover.tournament_size,
-                        cross_over_rate=solver_cfg.ga.crossover.cross_over_rate,
-                    )
-                )
-            elif solver_cfg.ga.crossover.type == "two_point":
-                operators.append(
-                    TwoPointCrossOver(
-                        problem=problem,
-                        tournament_size=solver_cfg.ga.crossover.tournament_size,
-                        cross_over_rate=solver_cfg.ga.crossover.cross_over_rate,
-                    )
-                )
-            elif solver_cfg.ga.crossover.type == "multi_point":
-                operators.append(
-                    MultiPointCrossOver(
-                        problem=problem,
-                        num_points=solver_cfg.ga.crossover.num_points,
-                        tournament_size=solver_cfg.ga.crossover.tournament_size,
-                        cross_over_rate=solver_cfg.ga.crossover.cross_over_rate,
-                    )
-                )
-        return GeneticAlgorithm(
-            problem=problem,
-            popsize=solver_cfg.ga.popsize,
-            # re_evaluate=solver_cfg.ga.re_evaluate,
-            operators=operators,
-            # re_evaluate_parents_first=True
+    elif solver_cfg.algorithm == "pgpe":
+        center_init = (
+            latents.flatten() if solver_cfg.pgpe.center_init == "latents" else None
         )
+        return PGPE(
+            problem=problem,
+            popsize=solver_cfg.pgpe.popsize,
+            center_learning_rate=solver_cfg.pgpe.center_learning_rate,
+        )
+        pass
     elif solver_cfg.algorithm == "cosyne":
         return Cosyne(
             problem=problem,

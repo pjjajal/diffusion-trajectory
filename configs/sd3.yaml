@@ -107,19 +107,10 @@ solver:
     optimizer: "clipup" # ["adam", "clipup", "null"]
     center_init: "latents" # null | ["latents"]
     popsize: 16
-  ga:
-    popsize: 10
-    re_evaluate: false
-    mutation:
-      active: true
-      stdev: 0.1
-      mutation_probability: 0.1
-    crossover:
-      active: true
-      type: "one_point" # ["one_point", "two_point", "multi_point"]
-      tournament_size: 4
-      cross_over_rate: 0.2
-      num_points: 4
+  pgpe:
+    popsize: 16
+    center_init: "latents" # null | ["latents"]
+    center_learning_rate: 3
   cosyne:
     popsize: 16
     tournament_size: 2
