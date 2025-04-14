@@ -78,10 +78,10 @@ fitness:
       model_name: "dino_base"
       top_k: 15
     hpsv2:
-      active: false
+      active: true
       weight: 1.0
     imagereward:
-      active: true
+      active: false
       weight: 1.0
 
 noise_injection:

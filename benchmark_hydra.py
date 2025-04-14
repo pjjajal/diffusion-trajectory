@@ -469,6 +469,8 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
             csa_squared=solver_cfg.cmaes.csa_squared,
             separable=solver_cfg.cmaes.separable,
             center_init=center_init,
+            # popsize=solver_cfg.cmaes.popsize,
+
         )
     elif solver_cfg.algorithm == "snes":
         center_init = (
@@ -582,8 +584,8 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
             if solver.best_eval > benchmark_cfg.till_reward:
                 break
 
-    if benchmark_cfg.wandb.active:
-        wandb_log(solver, step, img, prompt, running_time, sample_fn.device)
+    # if benchmark_cfg.wandb.active:
+    #     wandb_log(solver, step, img, prompt, running_time, sample_fn.device)
 
 
 @hydra.main(config_path="configs")
@@ -652,7 +654,7 @@ def main(cfg: DictConfig):
                 randn_intialization,
                 mean=cfg.solver.initialization.mean,
                 stdev=cfg.solver.initialization.std,
-                initial=centroid.flatten().cpu() if cfg.solver.algorithm == "cosyne" else None,
+                initial=centroid.flatten().cpu() if cfg.noise_injection.type == "noise" else None,
             ),
         )
         solver = create_solver(problem, centroid, cfg.solver)
@@ -672,6 +674,8 @@ def main(cfg: DictConfig):
                     "pop_best_eval": baseline_fitness.item(),
                     "mean_eval": baseline_fitness.item(),
                     "median_eval": baseline_fitness.item(),
+                    "popsize": solver.popsize if hasattr(cfg.solver, "popsize") else -1,
+                    # "popsize": solver.population.shape[0] if solver.population else -1,
                 }
             )
 

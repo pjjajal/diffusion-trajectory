@@ -78,10 +78,10 @@ fitness:
       model_name: "dino_base"
       top_k: 15
     hpsv2:
-      active: false
+      active: true
       weight: 1.0
     imagereward:
-      active: true
+      active: false
       weight: 1.0
 
 noise_injection:
@@ -90,5 +90,5 @@ noise_injection:
 solver:
   algorithm: "random" # ["random", "zero_order"]
   population: 16
-  split_size: 4 # this is used to break the batches.
+  split_size: 8 # this is used to break the batches.
   threshold: 0.95

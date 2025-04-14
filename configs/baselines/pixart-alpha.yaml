@@ -88,7 +88,7 @@ noise_injection:
   add_noise: false # DO NOT CHANGE
 
 solver:
-  algorithm: "random" # ["random", "zero_order"]
+  algorithm: "zero_order" # ["random", "zero_order"]
   population: 16
   split_size: 4 # this is used to break the batches.
   threshold: 0.95

@@ -78,20 +78,20 @@ fitness:
       model_name: "dino_base"
       top_k: 15
     hpsv2:
-      active: false
+      active: true
       weight: 1.0
     imagereward:
-      active: true
+      active: false
       weight: 1.0
 
 noise_injection:
   type: "noise" # ["rotational_transform", "svd_rot_transform", "noise", "multi_axis_rot"]
   add_noise: false
-  mean_scale: 0.0001
+  mean_scale: 0.01
   bound: 0.1
 
 solver:
-  algorithm: "cosyne" # ["cmaes" , "snes", "ga", "cosyne"]
+  algorithm: "snes" # ["cmaes" , "snes", "ga", "cosyne"]
   initial_bounds: [-1, 1]
   initialization:
     mean: 0.0
@@ -99,21 +99,22 @@ solver:
   cmaes:
     stdev_init: 0.1
     separable: true
-    center_init: null # null | ["latents"]
+    center_init: "latents" # null | ["latents"]
     csa_squared: true
+    popsize: 16
   snes:
-    radius_init: 50
-    center_learning_rate: 3
+    radius_init: 40
+    center_learning_rate: 1.0
     optimizer: "clipup" # ["adam", "clipup", "null"]
     center_init: "latents" # null | ["latents"]
     popsize: 16
   pgpe:
     popsize: 16
-    center_init: "latents" # null | ["latents"]
-    center_learning_rate: 3
-    stdev_learning_rate: 1
+    center_init: null # null | ["latents"]
+    center_learning_rate: 40
+    stdev_learning_rate: 10
     stdev_init: 1.0
-    radius_init: null 
+    radius_init: null
   cosyne:
     popsize: 16
     tournament_size: 2
