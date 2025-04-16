@@ -16,6 +16,15 @@ from transformers import (
     CLIPProcessor,
 )
 
+from torchvision.transforms import (
+    CenterCrop,
+    Compose,
+    InterpolationMode,
+    Normalize,
+    Resize,
+    ToTensor,
+)
+
 from .hf_gradient_processors import as_tensor_gradient_flow_clip_image_processor
 
 try:
@@ -253,13 +262,23 @@ def pickscore_fitness_fn(
 
     return fitness_fn
 
+### Taken from ImageReward.py
+def imagereward_grad_tensor_transform(size: int = 224):
+    return Compose([
+        Resize(size, interpolation=InterpolationMode.BICUBIC),
+        CenterCrop(size),
+        # lambda x: x.convert("RGB"),
+        # ToTensor(),
+        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+    ])
 
 ###
-### Imagereward (inspired by reading https://arxiv.org/pdf/2501.09732)
+### Imagereward (https://arxiv.org/pdf/2501.09732)
 ###
 def imagereward_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
+    
     ### Load the model
     imagereward_model = ImageReward.load("ImageReward-v1.0", device=device)
     imagereward_model = imagereward_model.eval()
@@ -270,6 +289,30 @@ def imagereward_fitness_fn(
         return torch.Tensor([rewards])
 
     return fitness_fn
+
+###
+### ImageReward with Gradient Flow
+### Adapted from ImageReward.py to accomodate gradients
+###
+def imagereward_gradient_flow_fitness_fn(
+    prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
+) -> Callable:
+    ### Load the model
+    imagereward_model = ImageReward.load("ImageReward-v1.0", device=device)
+    imagereward_model = imagereward_model.eval()
+    text_input = imagereward_model.blip.tokenizer(prompt, padding='max_length', truncation=True, max_length=35, return_tensors="pt").to(device)
+
+    def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
+        img = handle_input(img, skip=True)
+        img_tensor = imagereward_grad_tensor_transform(224)(img)
+        rewards = imagereward_model.score_gard(
+            prompt_attention_mask=text_input.attention_mask, 
+            prompt_ids=text_input.input_ids, 
+            image=img_tensor
+        )
+        return rewards
+
+    return fitness_fn        
 
 
 ###

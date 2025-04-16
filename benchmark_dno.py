@@ -10,7 +10,7 @@ import time
 from torch import autocast
 from torch.amp import GradScaler
 from dno.rewards import RFUNCTIONS
-from fitness import imagereward_fitness_fn, hpsv2_fitness_fn
+from fitness import imagereward_gradient_flow_fitness_fn, hpsv2_fitness_fn
 import numpy as np
 import json
 import warnings
@@ -267,12 +267,13 @@ if __name__ == "__main__":
 	unet = pipeline.unet
 
 	### Load eval dataset
-	dataset = eval_datasets.create_dataset("drawbench")
+	dataset_config = DictConfig({"name": "drawbench", "cache_dir": args.cache_dir})
+	dataset = eval_datasets.create_dataset(dataset_config)
 	dataset_iterator = dataset.iter(batch_size=1)
 
 	### Wandb
 	wandb.init(
-		project="seris/inference-dno",
+		project="inference-dno",
 		config=vars(args),
 	)
 
@@ -308,14 +309,18 @@ if __name__ == "__main__":
 			True,
 		)
 
-		fitness_callable = imagereward_fitness_fn(
+		fitness_callable = imagereward_gradient_flow_fitness_fn(
+			prompt=prompt,
 			cache_dir=args.cache_dir, 
 			device=args.device
 		)
-
 		loss_function = lambda x: torch.mean(-fitness_callable(x))
+		
+		# loss_function = RFUNCTIONS["aesthetic"](inference_dtype = torch.float32, device = args.device)
 
-		for i in range(args.opt_steps):
+		print(f"Optimizing for prompt: {prompt}")
+
+		for t in range(args.opt_steps):
 			optimizer.zero_grad()
 
 			with autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
@@ -325,7 +330,8 @@ if __name__ == "__main__":
 					eta = args.eta, 
 					cfg_scale = args.guidance_scale, 
 					device = args.device,
-					opt_timesteps = args.opt_time)
+					opt_timesteps = args.opt_time
+				)
 				
 				sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
 				sample = decode_latent(pipeline.vae, sample)
@@ -346,7 +352,7 @@ if __name__ == "__main__":
 				grad_scaler.update()
 
 				wandb.log({
-					"step": i,
+					"step": t,
 					"reward": reward,
 					"best_img": wandb.Image(sample),
 					"prompt": prompt,
