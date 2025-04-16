@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 import wandb
 from omegaconf import DictConfig
+import random
 
 import eval_datasets
 
@@ -176,9 +177,9 @@ def benchmark(benchmark_cfg: DictConfig, sample_fn, searcher, prompt):
 @hydra.main(config_path="configs/baselines")
 def main(cfg: DictConfig):
     # set seeds
-    # np.random.seed(cfg.seed)
-    # torch.manual_seed(cfg.seed)
-    # random.seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
+    random.seed(cfg.seed)
 
     # set up wandb
     if cfg.benchmark.wandb.active:

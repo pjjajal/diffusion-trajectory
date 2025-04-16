@@ -8,7 +8,8 @@ from .fitness_fn import (
 	brightness,
 	relative_luminance,
 	Novelty,
-    jpeg_compressibility
+    jpeg_compressibility,
+    imagereward_gradient_flow_fitness_fn,
 )
 from .hf_gradient_processors import (
 	CLIPImageProcessorWithTensorGradientFlow, as_tensor_gradient_flow_clip_image_processor

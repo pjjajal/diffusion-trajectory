@@ -321,7 +321,7 @@ if __name__ == "__main__":
 
 
 		print(f"Optimizing for prompt: {prompt}")
-
+		running_time = 0
 		for t in range(args.opt_steps):
 			start_time = time.time()
 			optimizer.zero_grad()
@@ -354,13 +354,13 @@ if __name__ == "__main__":
 				grad_scaler.step(optimizer)
 				grad_scaler.update()
 
-
+				running_time += time.time() - start_time
 				wandb.log({
 					"step": t,
 					"reward": reward,
 					"best_img": wandb.Image(sample),
 					"prompt": prompt,
-					"running_time": time.time() - start_time,
+					"running_time": running_time,
 				})
 
 		

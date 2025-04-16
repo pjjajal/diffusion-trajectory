@@ -591,9 +591,9 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
 @hydra.main(config_path="configs")
 def main(cfg: DictConfig):
     # set seeds
-    # np.random.seed(cfg.seed)
-    # torch.manual_seed(cfg.seed)
-    # random.seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
+    random.seed(cfg.seed)
 
     # set up wandb
     if cfg.benchmark.wandb.active:
