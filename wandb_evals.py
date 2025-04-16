@@ -35,7 +35,7 @@ clip_model = (
 def clip_score(processor, clip_model, prompt, img):
     inputs = processor(
         text=[prompt], images=[img], return_tensors="pt", padding=True
-    ).to(device="mps")
+    ).to(device=DEVICE)
     outputs = clip_model(**inputs)
     score = outputs[0][0]
     return score.tolist()
@@ -145,7 +145,6 @@ def parse_args():
         default="./eval_results",
         help="Directory to save the evaluation results",
     )
-    parser.add_argument("--api-key", type=str, help="Gemini API key")
     return parser.parse_args()
 
 
@@ -156,7 +155,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     # Initialize WandB
-    api = wandb.Api(timeout=30)
+    api = wandb.Api(timeout=60)
 
     # Fetch the run
     run = api.run(run_path)
@@ -171,7 +170,8 @@ def main():
     reverse_unq_prompts = {v: k for k, v in unq_prompts.items()}
 
     # Save path.
-    BASE_SAVE_PATH = os.path.join(output_dir, f"{run_id}")
+    BASE_SAVE_PATH = output_dir
+    # BASE_SAVE_PATH = os.path.join(output_dir, f"{run_id}")
     prompts_json_path = os.path.join(BASE_SAVE_PATH, "prompts.json")
     best_worst_results_path = os.path.join(BASE_SAVE_PATH, "best_worst_results.csv")
 
@@ -232,98 +232,98 @@ def main():
         prompt_dict = json.load(f)
 
     measurements = []
-    for idx, prompt in prompt_dict.items():
+    for idx, prompt in tqdm(prompt_dict.items()):
         img_save_loc = os.path.join(BASE_SAVE_PATH, idx)
 
-        path_score_list = []
+        max_path = os.path.join(img_save_loc, "max.png")
+        baseline_path = os.path.join(img_save_loc, "baseline.png")
+
+        if os.path.exists(max_path):
+            img = Image.open(max_path)
+
+            with torch.no_grad():
+                img_reward_score = img_reward.score(prompt, img)
+                hpsv_reward_score = hpsv2.score(img, prompt)
+                aesthetic_reward_score = aesthetic_score(img)
+                clip_reward_score = None
+                try:
+                    with torch.no_grad():
+                        clip_reward_score = clip_score(
+                            processor, clip_model, prompt, img
+                        )
+                except:
+                    print(f"Failed to score {prompt} with CLIP")
+
+            measurements.append(
+                {
+                    "prompt": prompt,
+                    "img_reward_score": img_reward_score,
+                    "hpsv_reward_score": hpsv_reward_score[0],
+                    "aesthetic_reward_score": aesthetic_reward_score.item(),
+                    "clip_reward_score": clip_reward_score[0] if clip_reward_score else None,
+                    "img_path": max_path,
+                }
+            )
+        if os.path.exists(baseline_path):
+            img = Image.open(baseline_path)
+
+            with torch.no_grad():
+                img_reward_score = img_reward.score(prompt, img)
+                hpsv_reward_score = hpsv2.score(img, prompt)
+                aesthetic_reward_score = aesthetic_score(img)
+                clip_reward_score = None
+                try:
+                    with torch.no_grad():
+                        clip_reward_score = clip_score(
+                            processor, clip_model, prompt, img
+                        )
+                except:
+                    print(f"Failed to score {prompt} with CLIP")
+
+            measurements.append(
+                {
+                    "prompt": prompt,
+                    "img_reward_score": img_reward_score,
+                    "hpsv_reward_score": hpsv_reward_score[0],
+                    "aesthetic_reward_score": aesthetic_reward_score.item(),
+                    "clip_reward_score": clip_reward_score[0] if clip_reward_score else None,
+                    "img_path": baseline_path,
+                }
+            )
+
         for img_path in glob(os.path.join(img_save_loc, "[0-9]*.png")):
+
             img = Image.open(img_path)
 
-            img_reward_score = img_reward.score(prompt, img)
-            path_score_list.append((img_path, img_reward_score))
+            with torch.no_grad():
+                img_reward_score = img_reward.score(prompt, img)
+                hpsv_reward_score = hpsv2.score(img, prompt)
+                aesthetic_reward_score = aesthetic_score(img)
+                clip_reward_score = None
+                try:
+                    with torch.no_grad():
+                        clip_reward_score = clip_score(
+                            processor, clip_model, prompt, img
+                        )
+                except:
+                    print(f"Failed to score {prompt} with CLIP")
 
-        highest_score = max(path_score_list, key=lambda x: x[1])
-        lowest_score = min(path_score_list, key=lambda x: x[1])
-
-        baseline_score_path = os.path.join(img_save_loc, "baseline.png")
-        baseline_img = Image.open(baseline_score_path)
-        baseline_img_score = img_reward.score(prompt, baseline_img)
-
-        measurements.append(
-            {
-                "prompt": prompt,
-                "highest_score": highest_score[1],
-                "highest_score_path": highest_score[0],
-                "lowest_score": lowest_score[1],
-                "lowest_score_path": lowest_score[0],
-                "baseline_score": baseline_img_score,
-                "baseline_score_path": baseline_score_path,
-            }
-        )
-
+            measurements.append(
+                {
+                    "prompt": prompt,
+                    "img_reward_score": img_reward_score,
+                    "hpsv_reward_score": hpsv_reward_score[0],
+                    "aesthetic_reward_score": aesthetic_reward_score.item(),
+                    "clip_reward_score": clip_reward_score[0] if clip_reward_score else None,
+                    "img_path": img_path,
+                }
+            )
     measurements_df = pd.DataFrame(measurements)
     measurements_df.to_csv(
         os.path.join(BASE_SAVE_PATH, "measurements.csv"), index=False
     )
+    print("Measurements saved to measurements.csv")
 
-    all_measurements = []
-    for i, row in tqdm(measurements.iterrows()):
-        prompt = row["prompt"]
-        highest_score_img_reward = row["highest_score"]
-        lowest_score_img_reward = row["lowest_score"]
-        baseline_score_img_reward = row["baseline_score"]
-        highest_score_path = row["highest_score_path"]
-        lowest_score_path = row["lowest_score_path"]
-        baseline_score_path = row["baseline_score_path"]
 
-        highest_score_img = Image.open(highest_score_path)
-        lowest_score_img = Image.open(lowest_score_path)
-        baseline_score_img = Image.open(baseline_score_path)
-
-        # HPSV2
-        with torch.no_grad():
-            highest_score_hpsv = hpsv2.score(highest_score_img, prompt)
-            lowest_score_hpsv = hpsv2.score(lowest_score_img, prompt)
-            baseline_score_hpsv = hpsv2.score(baseline_score_img, prompt)
-
-        # CLIP
-        highest_score_clip = None
-        lowest_score_clip = None
-        baseline_score_clip = None
-        try:
-            with torch.no_grad():
-                highest_score_clip = clip_score(
-                    processor, clip_model, prompt, highest_score_img
-                )
-                lowest_score_clip = clip_score(
-                    processor, clip_model, prompt, lowest_score_img
-                )
-                baseline_score_clip = clip_score(
-                    processor, clip_model, prompt, baseline_score_img
-                )
-        except:
-            print(f"Failed to score {prompt} with CLIP")
-
-        # Aesthetic
-        with torch.no_grad():
-            highest_score_aesthetic = aesthetic_score(highest_score_img)
-            lowest_score_aesthetic = aesthetic_score(lowest_score_img)
-            baseline_score_aesthetic = aesthetic_score(baseline_score_img)
-
-        all_measurements.append(
-            {
-                "prompt": prompt,
-                "highest_score_img_reward": highest_score_img_reward,
-                "lowest_score_img_reward": lowest_score_img_reward,
-                "baseline_score_img_reward": baseline_score_img_reward,
-                "highest_score_hpsv": highest_score_hpsv,
-                "lowest_score_hpsv": lowest_score_hpsv,
-                "baseline_score_hpsv": baseline_score_hpsv,
-                "highest_score_clip": highest_score_clip,
-                "lowest_score_clip": lowest_score_clip,
-                "baseline_score_clip": baseline_score_clip,
-                "highest_score_aesthetic": highest_score_aesthetic,
-                "lowest_score_aesthetic": lowest_score_aesthetic,
-                "baseline_score_aesthetic": baseline_score_aesthetic,
-            }
-        )
+if __name__ == "__main__":
+    main()

@@ -27,3 +27,4 @@ bitsandbytes
 gguf
 hydra-core
 beautifulsoup4
+pygad
