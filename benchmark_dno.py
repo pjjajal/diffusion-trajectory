@@ -17,6 +17,7 @@ import warnings
 import eval_datasets
 import wandb
 from omegaconf import DictConfig
+from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -262,7 +263,7 @@ if __name__ == "__main__":
 	pipeline.text_encoder.requires_grad_(False)
 	pipeline.unet.requires_grad_(False)
 	pipeline.safety_checker = None
-	pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
+	# pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
 	pipeline.scheduler.set_timesteps(args.num_steps)
 	unet = pipeline.unet
 
@@ -294,7 +295,7 @@ if __name__ == "__main__":
 	grad_scaler = GradScaler("cuda", enabled=use_amp, init_scale = 8192)
 	amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
 	
-	for data in dataset_iterator:
+	for data in tqdm(dataset_iterator):
 		prompt = data["prompt"]
 		
 		noise_vectors = torch.randn(args.num_steps + 1, 4, 64, 64, device = args.device)
@@ -318,9 +319,11 @@ if __name__ == "__main__":
 		
 		# loss_function = RFUNCTIONS["aesthetic"](inference_dtype = torch.float32, device = args.device)
 
+
 		print(f"Optimizing for prompt: {prompt}")
 
 		for t in range(args.opt_steps):
+			start_time = time.time()
 			optimizer.zero_grad()
 
 			with autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
@@ -351,11 +354,13 @@ if __name__ == "__main__":
 				grad_scaler.step(optimizer)
 				grad_scaler.update()
 
+
 				wandb.log({
 					"step": t,
 					"reward": reward,
 					"best_img": wandb.Image(sample),
 					"prompt": prompt,
+					"running_time": time.time() - start_time,
 				})
 
 		
