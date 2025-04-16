@@ -8,15 +8,28 @@ import shutil
 from PIL import Image
 import time
 from torch import autocast
-### MODIFIED, torch.cuda.amp is deprecated, use torch.amp 
 from torch.amp import GradScaler
 from dno.rewards import RFUNCTIONS
-from fitness import pickscore_fitness_fn, aesthetic_fitness_fn
+from fitness import imagereward_fitness_fn, hpsv2_fitness_fn
 import numpy as np
 import json
 import warnings
+import eval_datasets
+import wandb
+from omegaconf import DictConfig
 
 warnings.filterwarnings("ignore")
+
+### This is used to save the config file to wandb
+def flatten_dict(d: DictConfig):
+    out = {}
+    for k, v in d.items():
+        if isinstance(v, DictConfig):
+            for k2, v2 in flatten_dict(v).items():
+                out[k + "." + k2] = v2
+        else:
+            out[k] = v
+    return out
 
 # sampling algorithm
 class SequentialDDIM:
@@ -214,7 +227,6 @@ def compute_probability_regularization(noise_vectors, eta, opt_time, subsample, 
 
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description='Diffusion Optimization with Differentiable Objective')
-	parser.add_argument('--prompt', type=str, default="white duck", help='prompt for the optimization')
 	parser.add_argument('--num-steps', type=int, default=50, help='number of steps for optimization')
 	parser.add_argument('--eta', type=float, default=1.0, help='eta for the DDIM algorithm, eta=0 is ODE-based sampling while eta>0 is SDE-based sampling')
 	parser.add_argument('--guidance-scale', type=float, default=5.0, help='guidance scale for classifier-free guidance')
@@ -222,7 +234,6 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument('--seed', type=int, default=0, help='random seed')
 	parser.add_argument('--opt-steps', type=int, default=100, help='number of optimization steps')
 	parser.add_argument('--opt-time', type=int, default=50, help='number of timesteps in the generation to be optimized')
-	parser.add_argument('--objective', type=str, default="black", help='objective for optimization', choices = ["aesthetic", "hps", "pick", "white", "black"])
 	parser.add_argument('--precision', choices = ["fp16", "fp32"], default="fp16", help='precision for optimization')
 	parser.add_argument('--gamma', type=float, default=0., help='coefficient for the probability regularization')
 	parser.add_argument('--subsample', type=int, default=1, help='subsample factor for the computing the probability regularization')
@@ -237,58 +248,35 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
 	args = parse_args()
+	torch.manual_seed(args.seed)
 
 	# load model
-	### MODIFIED
 	model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
-	# pipeline = StableDiffusionPipeline.from_pretrained(model_id).to(device=args.device)
 	pipeline = DiffusionPipeline.from_pretrained(
 		model_id,
 		use_safetensors=True,
 		cache_dir=args.cache_dir,
 	).to(args.device)
 
-
-	# freeze parameters of models to save more memory
 	pipeline.vae.requires_grad_(False)
 	pipeline.text_encoder.requires_grad_(False)
 	pipeline.unet.requires_grad_(False)
-	# disable safety checker
 	pipeline.safety_checker = None
 	pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
-	# set the number of steps
 	pipeline.scheduler.set_timesteps(args.num_steps)
 	unet = pipeline.unet
 
-	# load the loss function, which is negative of the reward fucntion
-	# loss_fn = RFUNCTIONS[args.objective](inference_dtype = torch.float32, device = args.device)
+	### Load eval dataset
+	dataset = eval_datasets.create_dataset("drawbench")
+	dataset_iterator = dataset.iter(batch_size=1)
 
-	# fitness_callable = pickscore_fitness_fn(
-	# 	prompt=args.prompt,
-	# 	cache_dir=args.cache_dir, 
-	# 	device=args.device
-	# )
-
-	fitness_callable = aesthetic_fitness_fn(
-		cache_dir=args.cache_dir, 
-		device=args.device
+	### Wandb
+	wandb.init(
+		project="seris/inference-dno",
+		config=vars(args),
 	)
 
-	### Assign the negative of the loss function
-	loss_function = lambda x: torch.mean(-fitness_callable(x))
-
-	torch.manual_seed(args.seed)
-	noise_vectors = torch.randn(args.num_steps + 1, 4, 64, 64, device = args.device)
-	noise_vectors.requires_grad_(True)
-	optimize_groups = [{"params":noise_vectors, "lr":args.lr}]
-	optimizer = torch.optim.AdamW(optimize_groups)
-	prompt_embeds = pipeline._encode_prompt(
-						args.prompt,
-						args.device,
-						1,
-						True,
-					)
-
+	### Output handling
 	path_name = f"SD-{time.strftime('%Y-%m-%d-%H-%M-%S')}"
 	output_path = os.path.join(args.output, path_name)
 
@@ -296,7 +284,7 @@ if __name__ == "__main__":
 		shutil.rmtree(output_path)
 	os.makedirs(output_path)
 	
-	# save args
+	### save args
 	with open(os.path.join(output_path, "args.json"), "w") as f:
 		json.dump(args.__dict__, f, indent = 4)
 
@@ -305,40 +293,63 @@ if __name__ == "__main__":
 	grad_scaler = GradScaler("cuda", enabled=use_amp, init_scale = 8192)
 	amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
 	
+	for data in dataset_iterator:
+		prompt = data["prompt"]
+		
+		noise_vectors = torch.randn(args.num_steps + 1, 4, 64, 64, device = args.device)
+		noise_vectors.requires_grad_(True)
+		optimize_groups = [{"params":noise_vectors, "lr":args.lr}]
+		optimizer = torch.optim.AdamW(optimize_groups)
 
-	for i in range(args.opt_steps):
-		optimizer.zero_grad()
+		prompt_embeds = pipeline._encode_prompt(
+			prompt,
+			args.device,
+			1,
+			True,
+		)
 
-		with autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
-			ddim_sampler = SequentialDDIM(
-				timesteps = args.num_steps,
-				scheduler = pipeline.scheduler, 
-				eta = args.eta, 
-				cfg_scale = args.guidance_scale, 
-				device = args.device,
-				opt_timesteps = args.opt_time)
+		fitness_callable = imagereward_fitness_fn(
+			cache_dir=args.cache_dir, 
+			device=args.device
+		)
 
-			sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
-			sample = decode_latent(pipeline.vae, sample)
-			
-			loss = loss_function(sample)
-			reward = -loss.item()
-			
-			if args.gamma > 0:
-				reg_loss = compute_probability_regularization(noise_vectors, args.eta, args.opt_time, args.subsample)
-				loss = loss + args.gamma * reg_loss
+		loss_function = lambda x: torch.mean(-fitness_callable(x))
 
-			grad_scaler.scale(loss).backward()
-			grad_scaler.unscale_(optimizer)
+		for i in range(args.opt_steps):
+			optimizer.zero_grad()
 
-			torch.nn.utils.clip_grad_norm_([noise_vectors], 1.0)
+			with autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+				ddim_sampler = SequentialDDIM(
+					timesteps = args.num_steps,
+					scheduler = pipeline.scheduler, 
+					eta = args.eta, 
+					cfg_scale = args.guidance_scale, 
+					device = args.device,
+					opt_timesteps = args.opt_time)
+				
+				sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
+				sample = decode_latent(pipeline.vae, sample)
+				
+				loss = loss_function(sample)
+				reward = -loss.item()
+				
+				if args.gamma > 0:
+					reg_loss = compute_probability_regularization(noise_vectors, args.eta, args.opt_time, args.subsample)
+					loss = loss + args.gamma * reg_loss
 
-			grad_scaler.step(optimizer)
-			grad_scaler.update()
-			
-	
-		img = to_img(sample)
-		img = Image.fromarray(img)
-		img.save(os.path.join(output_path, f"{i}_{reward}.png"))
-		print(f"step : {i}, reward : {reward}")
+				grad_scaler.scale(loss).backward()
+				grad_scaler.unscale_(optimizer)
+
+				torch.nn.utils.clip_grad_norm_([noise_vectors], 1.0)
+
+				grad_scaler.step(optimizer)
+				grad_scaler.update()
+
+				wandb.log({
+					"step": i,
+					"reward": reward,
+					"best_img": wandb.Image(sample),
+					"prompt": prompt,
+				})
+
 		
