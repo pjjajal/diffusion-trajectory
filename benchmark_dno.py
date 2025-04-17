@@ -17,6 +17,7 @@ import warnings
 import eval_datasets
 import wandb
 from omegaconf import DictConfig
+import random
 
 warnings.filterwarnings("ignore")
 
@@ -249,7 +250,9 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
 	args = parse_args()
+	np.random.seed(args.seed)
 	torch.manual_seed(args.seed)
+	random.seed(args.seed)
 
 	# load model
 	model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
@@ -321,7 +324,10 @@ if __name__ == "__main__":
 				cache_dir=args.cache_dir, 
 				device=args.device
 			)
-			loss_function = lambda x: torch.mean(-fitness_callable(x))
+			### Take care with negative sign
+			### -1.0x --> Loss
+			###  1.0x --> Score
+			loss_function = lambda x: torch.mean( -1.0 * fitness_callable(x) )
 
 		elif args.fitness_fn == "imagereward":
 			fitness_callable = imagereward_gradient_flow_fitness_fn(
@@ -329,7 +335,10 @@ if __name__ == "__main__":
 				cache_dir=args.cache_dir, 
 				device=args.device
 			)
-			loss_function = lambda x: torch.mean(-fitness_callable(x))
+			### Take care with negative sign
+			### -1.0x --> Loss
+			###  1.0x --> Score
+			loss_function = lambda x: torch.mean( -1.0 * fitness_callable(x) )
 		else:
 			raise ValueError(f"Unknown fitness function: {args.fitness_fn}")
 
