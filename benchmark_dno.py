@@ -10,14 +10,13 @@ import time
 from torch import autocast
 from torch.amp import GradScaler
 from dno.rewards import RFUNCTIONS
-from fitness import imagereward_gradient_flow_fitness_fn, hpsv2_fitness_fn
+from fitness import imagereward_gradient_flow_fitness_fn, hpsv2_fitness_fn, hpsv2_gradient_flow_fitness_fn
 import numpy as np
 import json
 import warnings
 import eval_datasets
 import wandb
 from omegaconf import DictConfig
-from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -135,7 +134,6 @@ def sequential_sampling(pipeline, unet, sampler, prompt_embeds, noise_vectors):
 
 	return sampler.get_last_sample()
 
-
 def decode_latent(decoder, latent):
 	img = decoder.decode(latent.unsqueeze(0) / 0.18215).sample
 	return img
@@ -228,12 +226,14 @@ def compute_probability_regularization(noise_vectors, eta, opt_time, subsample, 
 
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description='Diffusion Optimization with Differentiable Objective')
+	parser.add_argument('--model', type=str, default="stable-diffusion-v1-5", help='model name or path')
+	parser.add_argument('--fitness-fn', type=str, default="imagereward", choices=["imagereward", "hpsv2"], help='fitness function name')
 	parser.add_argument('--num-steps', type=int, default=50, help='number of steps for optimization')
-	parser.add_argument('--eta', type=float, default=1.0, help='eta for the DDIM algorithm, eta=0 is ODE-based sampling while eta>0 is SDE-based sampling')
-	parser.add_argument('--guidance-scale', type=float, default=5.0, help='guidance scale for classifier-free guidance')
+	parser.add_argument('--eta', type=float, default=0.0, help='eta for the DDIM algorithm, eta=0 is ODE-based sampling while eta>0 is SDE-based sampling')
+	parser.add_argument('--guidance-scale', type=float, default=7.5, help='guidance scale for classifier-free guidance')
 	parser.add_argument('--device', type=str, default="cuda", help='device for optimization')
-	parser.add_argument('--seed', type=int, default=0, help='random seed')
-	parser.add_argument('--opt-steps', type=int, default=100, help='number of optimization steps')
+	parser.add_argument('--seed', type=int, default=42, help='random seed')
+	parser.add_argument('--opt-steps', type=int, default=30, help='number of optimization steps')
 	parser.add_argument('--opt-time', type=int, default=50, help='number of timesteps in the generation to be optimized')
 	parser.add_argument('--precision', choices = ["fp16", "fp32"], default="fp16", help='precision for optimization')
 	parser.add_argument('--gamma', type=float, default=0., help='coefficient for the probability regularization')
@@ -263,7 +263,7 @@ if __name__ == "__main__":
 	pipeline.text_encoder.requires_grad_(False)
 	pipeline.unet.requires_grad_(False)
 	pipeline.safety_checker = None
-	# pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
+	pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
 	pipeline.scheduler.set_timesteps(args.num_steps)
 	unet = pipeline.unet
 
@@ -295,7 +295,7 @@ if __name__ == "__main__":
 	grad_scaler = GradScaler("cuda", enabled=use_amp, init_scale = 8192)
 	amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
 	
-	for data in tqdm(dataset_iterator):
+	for data in dataset_iterator:
 		prompt = data["prompt"]
 		
 		noise_vectors = torch.randn(args.num_steps + 1, 4, 64, 64, device = args.device)
@@ -310,20 +310,27 @@ if __name__ == "__main__":
 			True,
 		)
 
-		fitness_callable = imagereward_gradient_flow_fitness_fn(
-			prompt=prompt,
-			cache_dir=args.cache_dir, 
-			device=args.device
-		)
-		loss_function = lambda x: torch.mean(-fitness_callable(x))
-		
-		# loss_function = RFUNCTIONS["aesthetic"](inference_dtype = torch.float32, device = args.device)
+		if args.fitness_fn == "hpsv2":
+			fitness_callable = hpsv2_gradient_flow_fitness_fn(
+				prompt=prompt,
+				cache_dir=args.cache_dir, 
+				device=args.device
+			)
+			loss_function = lambda x: torch.mean(-fitness_callable(x))
 
+		elif args.fitness_fn == "imagereward":
+			fitness_callable = imagereward_gradient_flow_fitness_fn(
+				prompt=prompt,
+				cache_dir=args.cache_dir, 
+				device=args.device
+			)
+			loss_function = lambda x: torch.mean(-fitness_callable(x))
+		else:
+			raise ValueError(f"Unknown fitness function: {args.fitness_fn}")
 
 		print(f"Optimizing for prompt: {prompt}")
-		running_time = 0
+
 		for t in range(args.opt_steps):
-			start_time = time.time()
 			optimizer.zero_grad()
 
 			with autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
@@ -354,13 +361,37 @@ if __name__ == "__main__":
 				grad_scaler.step(optimizer)
 				grad_scaler.update()
 
-				running_time += time.time() - start_time
 				wandb.log({
 					"step": t,
 					"reward": reward,
 					"best_img": wandb.Image(sample),
 					"prompt": prompt,
-					"running_time": running_time,
 				})
 
+		###
+		### Save the final image
+		###
+		ddim_sampler = SequentialDDIM(
+			timesteps = args.num_steps,
+			scheduler = pipeline.scheduler, 
+			eta = args.eta, 
+			cfg_scale = args.guidance_scale, 
+			device = args.device,
+			opt_timesteps = args.opt_time
+		)
+		
+		sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
+		sample = decode_latent(pipeline.vae, sample)
+		
+		loss = loss_function(sample)
+		reward = -loss.item()
+
+		wandb.log({
+			"step": args.opt_steps,
+			"reward": reward,
+			"best_img": wandb.Image(sample),
+			"prompt": prompt,
+		})
+
+		
 		

@@ -26,25 +26,30 @@ from torchvision.transforms import (
 )
 
 from .hf_gradient_processors import as_tensor_gradient_flow_clip_image_processor
+from huggingface_hub import hf_hub_download
 
 try:
     import hpsv2
+    from hpsv2.img_score import (
+        initialize_model as hpsv2_initialize_model,
+        model_dict as hpsv2_model_dict,
+    )
+    from hpsv2.utils import (
+        hps_version_map as hpsv2_huggingface_hub_map,
+    )
 
-    HPSV21_CHECKPOINT_NAME = "HPS_v2.1_compressed.pt"
+    from hpsv2.src.open_clip import (
+        get_tokenizer as hpsv2_get_tokenizer,
+    )
+
 except ImportError:
-    print(
-        f"HPSv2 not able to be imported, see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison for install"
-    )
-    print(
-        f"Please download the model from https://huggingface.co/tgxs002/HPSv2 and place it in the cache_dir/"
-    )
+    print(f"HPSv2 not able to be imported, see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison for install")
+    print(f"Please download the model from https://huggingface.co/tgxs002/HPSv2 and place it in the cache_dir/")
 
 try:
     import ImageReward
 except ImportError:
-    print(
-        f"Imagereward not able to be imported, see https://github.com/THUDM/ImageReward/tree/main for install"
-    )
+    print(f"Imagereward not able to be imported, see https://github.com/THUDM/ImageReward/tree/main for install")
 
 
 ###
@@ -290,10 +295,7 @@ def imagereward_fitness_fn(
 
     return fitness_fn
 
-###
-### ImageReward with Gradient Flow
 ### Adapted from ImageReward.py to accomodate gradients
-###
 def imagereward_gradient_flow_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
@@ -314,10 +316,16 @@ def imagereward_gradient_flow_fitness_fn(
 
     return fitness_fn        
 
-
 ###
 ### HPSv2 (see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison)
 ###
+def hpsv2_grad_tensor_transform(size: int = 224):
+    return Compose([
+        Resize(size, interpolation=InterpolationMode.BICUBIC),
+        CenterCrop(size),
+        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+    ])
+
 def hpsv2_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
@@ -326,8 +334,44 @@ def hpsv2_fitness_fn(
     def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
         img = handle_input(img)
         score = hpsv2.score(img, prompt, hps_version="v2.0")
+
         return torch.Tensor(score)
 
+    return fitness_fn
+
+### HPSv2 with Gradient Flow
+def hpsv2_gradient_flow_fitness_fn(
+    prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
+) -> Callable:
+    prompt = prompt[0] if isinstance(prompt, list) else prompt
+
+    ###
+    ### Ripped off from hpsv2.img_score.py, hpsv2.src.open_clip.factory.py and other internals 
+    ###
+    hpsv2_initialize_model()
+    assert hpsv2_model_dict, "hpsv2_model_dict is empty. Ensure it is properly initialized."
+
+    hpsv2_chkpt_str = hf_hub_download("xswu/HPSv2", hpsv2_huggingface_hub_map["v2.0"], cache_dir=cache_dir)
+    hpsv2_checkpoint = torch.load(hpsv2_chkpt_str, map_location=device)
+    model = hpsv2_model_dict["model"]
+    model.load_state_dict(hpsv2_checkpoint['state_dict'])
+    model = model.to(device)
+    model.eval()
+
+    tokenizer = hpsv2_get_tokenizer('ViT-H-14')
+    text = tokenizer([prompt]).to(device=device)
+
+    def fitness_fn(img: Union[torch.Tensor, Image]) -> float:
+        img = handle_input(img, skip=True)
+        img_tensor = hpsv2_grad_tensor_transform(224)(img).to(device=device)
+
+        output_dict = model(img_tensor, text)
+        image_features, text_features = output_dict["image_features"], output_dict["text_features"]
+        logits_per_image = image_features @ text_features.T
+        score = torch.diagonal(logits_per_image)
+
+        return score
+    
     return fitness_fn
 
 
