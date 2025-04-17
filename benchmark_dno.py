@@ -263,7 +263,7 @@ if __name__ == "__main__":
 	pipeline.text_encoder.requires_grad_(False)
 	pipeline.unet.requires_grad_(False)
 	pipeline.safety_checker = None
-	pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
+	# pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
 	pipeline.scheduler.set_timesteps(args.num_steps)
 	unet = pipeline.unet
 
@@ -298,7 +298,12 @@ if __name__ == "__main__":
 	for data in dataset_iterator:
 		prompt = data["prompt"]
 		
-		noise_vectors = torch.randn(args.num_steps + 1, 4, 64, 64, device = args.device)
+
+		noise_vectors = torch.randn(
+			(args.num_steps + 1, 4, 64, 64), 
+			generator=torch.Generator(args.device).manual_seed(args.seed), 
+			device=args.device
+		)
 		noise_vectors.requires_grad_(True)
 		optimize_groups = [{"params":noise_vectors, "lr":args.lr}]
 		optimizer = torch.optim.AdamW(optimize_groups)
