@@ -321,6 +321,30 @@ def imagereward_gradient_flow_fitness_fn(
 
 	return fitness_fn
 
+def mirror_fitness_fn(
+	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
+) -> Callable:
+	
+	def fitness_fn(img: torch.Tensor) -> torch.Tensor:
+		img = handle_input(img, skip=True)
+		B, C, H, W = img.shape
+
+		left_half = img[:, :, :, :W//2]
+		right_half = img[:, :, :, W//2:]
+		right_half_flipped = torch.flip(right_half, dims=[3])  # Horizontal flip
+		
+		mse = torch.nn.functional.mse_loss(
+			left_half, 
+			right_half_flipped, 
+			reduction='mean'
+		)
+
+		### Why PSNR? Well, its log scale. I hypothesize the smoothness of PSNR over MSE might make it easier to optimize
+		### TODO: Might want to compute max() over a particular dim(s) rather than whole batch
+		psnr = 10.0 * torch.log10(left_half.max() / mse)
+		
+		return psnr
+
 ###
 ### HPSv2 (see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison)
 ###
