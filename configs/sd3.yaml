@@ -1,5 +1,5 @@
-defaults:
-  - override hydra/job_logging: none
+# defaults:
+  # - override hydra/job_logging: none
 
 seed: 32132
 

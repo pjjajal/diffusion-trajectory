@@ -180,3 +180,4 @@ outputs/
 !fv5iu18q+llm.csv
 !results/figure/**/*
 !results/evals/**/*.csv
+!eval_datasets/open_img_pref/*.csv

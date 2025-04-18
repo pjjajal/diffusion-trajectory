@@ -1,8 +1,6 @@
-import argparse
-import logging
 import os
 import random
-import subprocess
+import gc
 import time
 import warnings
 from pathlib import Path, PosixPath, WindowsPath
@@ -102,7 +100,7 @@ def create_pipeline(pipeline_cfg: DictConfig):
             torch_dtype=DTYPE_MAP[pipeline_cfg.dtype],
             cache_dir=pipeline_cfg.cache_dir,
             use_safetensors=True,
-            safety_checker=None
+            safety_checker=None,
         ).to(pipeline_cfg.device)
         # pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
     elif pipeline_cfg.type == "sdxl":
@@ -470,7 +468,6 @@ def create_solver(problem, latents, solver_cfg: DictConfig):
             separable=solver_cfg.cmaes.separable,
             center_init=center_init,
             # popsize=solver_cfg.cmaes.popsize,
-
         )
     elif solver_cfg.algorithm == "snes":
         center_init = (
@@ -565,9 +562,9 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
 
         if benchmark_cfg.save_images.active:
             if isinstance(prompt, list):
-                prompt_name = prompt[0][:10]
+                prompt_name = prompt[0].replace(" ", "_")[:15]
             else:
-                prompt_name = prompt[:10]
+                prompt_name = prompt.replace(" ", "_")[:15]
             img.save(
                 os.path.join(
                     benchmark_cfg.save_images.save_dir, f"{prompt_name}_{step}.png"
@@ -588,6 +585,7 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
     #     wandb_log(solver, step, img, prompt, running_time, sample_fn.device)
 
 
+@torch.no_grad()
 @hydra.main(config_path="configs")
 def main(cfg: DictConfig):
     # set seeds
@@ -654,7 +652,11 @@ def main(cfg: DictConfig):
                 randn_intialization,
                 mean=cfg.solver.initialization.mean,
                 stdev=cfg.solver.initialization.std,
-                initial=centroid.flatten().cpu() if cfg.noise_injection.type == "noise" else None,
+                initial=(
+                    centroid.flatten().cpu()
+                    if cfg.noise_injection.type == "noise"
+                    else None
+                ),
             ),
         )
         solver = create_solver(problem, centroid, cfg.solver)
@@ -675,26 +677,39 @@ def main(cfg: DictConfig):
                     "mean_eval": baseline_fitness.item(),
                     "median_eval": baseline_fitness.item(),
                     "popsize": solver.popsize if hasattr(cfg.solver, "popsize") else -1,
+                    "solution_length": solution_length,
                     # "popsize": solver.population.shape[0] if solver.population else -1,
                 }
             )
 
         if cfg.benchmark.save_images.active:
             if isinstance(x["prompt"], list):
-                prompt_name = x["prompt"][0][:10]
+                prompt_name = x["prompt"][0].replace(" ", "_")[:15]
             else:
-                prompt_name = x["prompt"][:10]
+                prompt_name = x["prompt"].replace(" ", "_")[:15]
             img.save(
                 os.path.join(
                     cfg.benchmark.save_images.save_dir,
                     f"{prompt_name}_baseline.png",
                 )
             )
-        print(f"Baseline fitness: {baseline_fitness}")
+        print(f"Baseline fitness: {baseline_fitness}, Solution Length: {solution_length}")
 
         # run
         benchmark(cfg.benchmark, solver, sample_fn, inner_fn, x["prompt"])
 
+        del (
+            fitness_fn,
+            obj_fn,
+            inner_fn,
+            centroid,
+            solution_length,
+            problem,
+            solver,
+            logger,
+        )
+        torch.cuda.empty_cache()
+        gc.collect()
 
 if __name__ == "__main__":
     main()

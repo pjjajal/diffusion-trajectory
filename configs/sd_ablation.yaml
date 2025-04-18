@@ -9,8 +9,8 @@ benchmark:
   till_reward: 0 # float > 0
   for_steps: 10 # int > 0
   wandb:
-    active: false
-    project: "inference-diffusion-noise-optim"
+    active: true
+    project: "inference-diffusion-noise-optim-ablation"
   save_images:
     active: true
     save_dir: "./benchmark_runs"
@@ -45,7 +45,7 @@ fitness:
   device: "cuda"
   dtype: "float16"
   cache_dir: null
-  problem_splits: 1
+  problem_splits: 4
   fns:
     brightness:
       weight: 1.0
