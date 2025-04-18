@@ -272,6 +272,7 @@ def pickscore_fitness_fn(
 
 ### Taken from ImageReward.py
 def imagereward_grad_tensor_transform(size: int = 224):
+	### Used pt_to_pil and numpy_to_pil as reference for clamp(...) transform
 	return Compose([
 		lambda x: ((x / 2) + 0.5).clamp(0, 1),
 		Resize(size, interpolation=InterpolationMode.BICUBIC),
@@ -310,7 +311,7 @@ def imagereward_gradient_flow_fitness_fn(
 	text_input = imagereward_model.blip.tokenizer(prompt, padding='max_length', truncation=True, max_length=35, return_tensors="pt").to(device)
 
 	def fitness_fn(img: torch.Tensor) -> float:
-		img_tensor = imagereward_xform(img)
+		img_tensor = imagereward_xform(img).to(dtype)
 		rewards = imagereward_model.score_gard(
 			prompt_attention_mask=text_input.attention_mask, 
 			prompt_ids=text_input.input_ids, 
@@ -324,6 +325,7 @@ def imagereward_gradient_flow_fitness_fn(
 ### HPSv2 (see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison)
 ###
 def hpsv2_grad_tensor_transform(size: int = 224):
+	### Used pt_to_pil and numpy_to_pil as reference for clamp(...) transform
 	return Compose([
 		lambda x: ((x / 2) + 0.5).clamp(0, 1),
 		Resize(size, interpolation=InterpolationMode.BICUBIC),
@@ -349,6 +351,8 @@ def hpsv2_gradient_flow_fitness_fn(
 	prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
 	prompt = prompt[0] if isinstance(prompt, list) else prompt
+
+	### Adapted from HPSV2 internals and original DNO reward_zoo.py
 	model_name = "ViT-H-14"
 	model, _, _ = hpsv2_create_model_and_transforms(
 		model_name,
@@ -371,7 +375,6 @@ def hpsv2_gradient_flow_fitness_fn(
 	)
 
 	hpsv2_xform = hpsv2_grad_tensor_transform(224)
-	# checkpoint_path = "D://Huggingface//HPS_v2_compressed.pt"
 	checkpoint_path = hf_hub_download("xswu/HPSv2", "HPS_v2_compressed.pt")
 	checkpoint = torch.load(checkpoint_path, map_location=device)
 	model.load_state_dict(checkpoint['state_dict'])
@@ -380,10 +383,9 @@ def hpsv2_gradient_flow_fitness_fn(
 	model.eval()
 		
 	def fitness_fn(img: torch.Tensor):    
-		x_var = hpsv2_xform(img).to(img.dtype)
-		caption = tokenizer(prompt)
-		caption = caption.to(device)
-		output_dict = model(x_var, caption)
+		img_tensor = hpsv2_xform(img).to(img.dtype)
+		caption = tokenizer(prompt).to(device)
+		output_dict = model(img_tensor, caption)
 		image_features, text_features = output_dict["image_features"], output_dict["text_features"]
 		logits = image_features @ text_features.T
 		score = torch.diagonal(logits)

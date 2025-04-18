@@ -298,10 +298,14 @@ if __name__ == "__main__":
 	grad_scaler = GradScaler("cuda", enabled=use_amp, init_scale = 8192)
 	amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
 	
+	###
+	### Dataset iterator
+	###
 	for data in dataset_iterator:
+		### Grab the prompt
 		prompt = data["prompt"]
-		
 
+	    ### Initialize noise vectors, optimzer, etc.
 		noise_vectors = torch.randn(
 			(args.num_steps + 1, 4, 64, 64), 
 			generator=torch.Generator(args.device).manual_seed(args.seed), 
@@ -318,6 +322,7 @@ if __name__ == "__main__":
 			True,
 		)
 
+		### Which fitness function to use?
 		if args.fitness_fn == "hpsv2":
 			fitness_callable = hpsv2_gradient_flow_fitness_fn(
 				prompt=prompt,
@@ -344,6 +349,9 @@ if __name__ == "__main__":
 
 		print(f"Optimizing for prompt: {prompt}")
 
+		###
+		### Optimization loop
+		###
 		for t in range(args.opt_steps):
 			optimizer.zero_grad()
 
@@ -375,15 +383,17 @@ if __name__ == "__main__":
 				grad_scaler.step(optimizer)
 				grad_scaler.update()
 
+				print(f"Step {t+1}/{args.opt_steps}, Loss: {loss.item():.4f}, Reward: {reward:.4f}")
 				wandb.log({
-					"step": t,
-					"reward": reward,
-					"best_img": wandb.Image(sample),
-					"prompt": prompt,
+					"Step": t,
+					"Loss": loss.item(),
+					"Reward": reward,
+					"Image": wandb.Image(sample),
+					"Prompt": prompt,
 				})
 
 		###
-		### Save the final image
+		### Log the final sample
 		###
 		ddim_sampler = SequentialDDIM(
 			timesteps = args.num_steps,
@@ -401,10 +411,11 @@ if __name__ == "__main__":
 		reward = -loss.item()
 
 		wandb.log({
-			"step": args.opt_steps,
-			"reward": reward,
-			"best_img": wandb.Image(sample),
-			"prompt": prompt,
+			"Step": args.opt_steps,
+			"Loss": loss.item(),
+			"Reward": reward,
+			"Image": wandb.Image(sample),
+			"Prompt": prompt,
 		})
 
 		
