@@ -1,13 +1,13 @@
 defaults:
   - override hydra/job_logging: none
 
-seed: 32132
+seed: 42
 
 benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 15 # int > 0
+  for_steps: 30 # int > 0
   wandb:
     active: true
     project: "inference-diffusion-noise-optim"
@@ -38,7 +38,7 @@ pipeline:
   dtype: "float16"
   cache_dir: null
   xformers_mem_eff_attn: false
-  cpu_offload: true
+  cpu_offload: false
   quantize: false
   device: "cuda"
   quantize_cfg:

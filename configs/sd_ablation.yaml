@@ -103,17 +103,17 @@ solver:
     center_init: "latents" # null | ["latents"]
     optimizer: "clipup" # ["adam", "clipup", "null"]
     center_learning_rate: 1.0
-    radius_init: 40
+    radius_init: 20
   pgpe:
     popsize: 16
     center_init: "latents" # null | ["latents"]
     center_learning_rate: 2
     stdev_learning_rate: 1
     stdev_init: null
-    radius_init: 2
+    radius_init: 20
   cosyne:
-    popsize: 4
-    tournament_size: 2
+    popsize: 16
+    tournament_size: 8
     mutation_probability: 1.0
     mutation_stdev: 0.10
     permute_all: true
