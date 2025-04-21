@@ -9,14 +9,14 @@ benchmark:
   till_reward: 0 # float > 0
   for_steps: 15 # int > 0
   wandb:
-    active: false
-    project: "inference-diffusion-noise-optim-ablation"
-  save_images:
     active: true
+    project: "inference-diffusion-noise-optim"
+  save_images:
+    active: false
     save_dir: "./benchmark_runs"
 
 dataset:
-  name: "open_image_preferences_36" # [drawbench, custom, open_image_preferences]
+  name: "drawbench" # [drawbench, custom, open_image_preferences]
   cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
   prompts:
     - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
@@ -87,7 +87,7 @@ noise_injection:
   bound: 0.01
 
 solver:
-  algorithm: "pgpe" # ["cmaes" , "snes", "pgpe", "cosyne"]
+  algorithm: "cosyne" # ["cmaes" , "snes", "pgpe", "cosyne"]
   initial_bounds: [-5, 5]
   initialization:
     mean: 0.0
@@ -101,15 +101,16 @@ solver:
   snes:
     popsize: null
     center_init: null # null | ["latents"]
+    stdev_init: 0.2
+    radius_init: null
     optimizer: null # ["adam", "clipup", "null"]
-    center_learning_rate: 0.5
-    radius_init: 5
+    center_learning_rate: null
   pgpe:
     popsize: 16
     center_init: null # null | ["latents"]
-    center_learning_rate: 0.1
-    stdev_learning_rate: 0.05
-    stdev_init: 0.05
+    center_learning_rate: 2
+    stdev_learning_rate: 1.0
+    stdev_init: 0.2
     radius_init: null
   cosyne:
     popsize: 16

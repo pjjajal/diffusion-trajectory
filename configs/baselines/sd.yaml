@@ -7,7 +7,7 @@ benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 30 # int > 0
+  for_steps: 15 # int > 0
   wandb:
     active: true
     project: "inference-diffusion-noise-optim"
@@ -62,7 +62,7 @@ fitness:
       active: false
     clip:
       weight: 1.0
-      active: false
+      active: true
       prompt: null
       model_name: "openai/clip-vit-base-patch16"
     aesthetic:
@@ -78,7 +78,7 @@ fitness:
       model_name: "dino_base"
       top_k: 15
     hpsv2:
-      active: true
+      active: false
       weight: 1.0
     imagereward:
       active: false
@@ -88,7 +88,7 @@ noise_injection:
   add_noise: false # DO NOT CHANGE
 
 solver:
-  algorithm: "random" # ["random", "zero_order"]
+  algorithm: "zero_order" # ["random", "zero_order"]
   population: 16
   split_size: 4 # this is used to break the batches.
   threshold: 0.95

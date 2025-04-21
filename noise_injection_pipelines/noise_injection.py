@@ -215,7 +215,6 @@ def multi_axis_svd_rot_transform(
     sample_fn,
     fitness_fn,
     latent_shape,
-    device,
     center=None,
     mean_scale=1,
     bound=0.05,
@@ -228,13 +227,14 @@ def multi_axis_svd_rot_transform(
     centroid = (
         center
         if center is not None
-        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=device)
+        else torch.zeros((b, c, h, w)).to(dtype=dtype, device=sample_fn.device)
     )
     slice_length_c = c + c**2
     slice_length_h = h + h**2 + slice_length_c
     slice_length_w = w + w**2 + slice_length_h
 
     def _inner_fn(x):
+        device = centroid.device
         x = x.reshape(-1, solution_length)
         # slice out the mean and covariance matrix
         axis_c = x[:, :slice_length_c]
@@ -284,7 +284,7 @@ def multi_axis_svd_rot_transform(
 
     def _fitness(x):
         samples = _inner_fn(x)
-        return torch.cat([fitness_fn(sample.unsqueeze(0)) for sample in samples], dim=0)
+        return torch.cat([fitness_fn(sample) for sample in samples], dim=0)
 
     return _fitness, _inner_fn, centroid, solution_length
 

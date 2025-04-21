@@ -7,7 +7,7 @@ benchmark:
   type: "till_steps" # ['till_time', 'till_reward', 'till_steps']
   till_time: 600 # seconds
   till_reward: 0 # float > 0
-  for_steps: 30 # int > 0
+  for_steps: 15 # int > 0
   wandb:
     active: true
     project: "inference-diffusion-noise-optim"
@@ -57,10 +57,10 @@ fitness:
       weight: 1.0
       active: false
     clip:
-      weight: 0.1
-      active: false
+      weight: 1.0
+      active: true
       prompt: null
-      model_name: "openai/clip-vit-base-patch32"
+      model_name: "openai/clip-vit-base-patch16"
     aesthetic:
       weight: 1.0
       active: false
@@ -75,7 +75,7 @@ fitness:
       top_k: 15
     hpsv2:
       weight: 1.0
-      active: true
+      active: false
     imagereward:
       active: false
       weight: 1.0
@@ -101,18 +101,19 @@ solver:
   snes:
     popsize: null
     center_init: "latents" # null | ["latents"]
-    optimizer: "clipup" # ["adam", "clipup", "null"]
-    center_learning_rate: 1.0
-    radius_init: 20
+    stdev_init: 0.2
+    radius_init: null
+    optimizer: null # ["adam", "clipup", "null"]
+    center_learning_rate: null
   pgpe:
     popsize: 16
     center_init: "latents" # null | ["latents"]
     center_learning_rate: 2
     stdev_learning_rate: 1.0
-    stdev_init: null
-    radius_init: 15
+    stdev_init: 0.2
+    radius_init: null
   cosyne:
-    popsize: 4
+    popsize: 16
     tournament_size: 2
     mutation_probability: 1.0
     mutation_stdev: 0.10

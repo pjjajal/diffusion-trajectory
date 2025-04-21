@@ -6,6 +6,7 @@ from .noise_injection import (
     svd_rot_transform,
     noise,
     multi_axis_rotational_transform,
+    multi_axis_svd_rot_transform,
 )
 from .sampling_pipelines import (
     SD3SamplingPipeline,

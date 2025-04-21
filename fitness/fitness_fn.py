@@ -107,7 +107,7 @@ def clip_fitness_fn(
 		_prompt = [prompt] if isinstance(prompt, str) else prompt
 		# _prompt = [_prompt[0],]
 		inputs = processor(
-			text=_prompt, images=pil_imgs, return_tensors="pt", padding=True
+			text=_prompt, images=pil_imgs, return_tensors="pt", padding=True, truncation=True
 		).to(device=device)
 		outputs = clip_model(**inputs)
 		score = outputs[0][0]
