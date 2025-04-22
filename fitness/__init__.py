@@ -1,6 +1,7 @@
 from .fitness_fn import (
 	compose_fitness_fns,
 	clip_fitness_fn,
+	clip_gradient_flow_fitness_fn,
 	aesthetic_fitness_fn, 
 	hpsv2_fitness_fn, 
 	hpsv2_gradient_flow_fitness_fn,
@@ -11,6 +12,7 @@ from .fitness_fn import (
 	relative_luminance,
 	Novelty,
     jpeg_compressibility,
+	mirror_fitness_fn
 )
 
 from .hf_gradient_processors import (

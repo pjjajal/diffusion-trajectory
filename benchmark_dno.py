@@ -10,7 +10,12 @@ import time
 from torch import autocast
 from torch.amp import GradScaler
 from dno.rewards import RFUNCTIONS
-from fitness import imagereward_gradient_flow_fitness_fn, hpsv2_fitness_fn, hpsv2_gradient_flow_fitness_fn
+from dno.rewards.rewards_zoo import jpeg_compressibility
+from fitness import (
+	imagereward_gradient_flow_fitness_fn, 
+	hpsv2_gradient_flow_fitness_fn, 
+	clip_gradient_flow_fitness_fn
+)
 import numpy as np
 import json
 import warnings
@@ -227,8 +232,7 @@ def compute_probability_regularization(noise_vectors, eta, opt_time, subsample, 
 
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser(description='Diffusion Optimization with Differentiable Objective')
-	parser.add_argument('--model', type=str, default="stable-diffusion-v1-5", help='model name or path')
-	parser.add_argument('--fitness-fn', type=str, default="imagereward", choices=["imagereward", "hpsv2"], help='fitness function name')
+	parser.add_argument('--fitness-fn', type=str, default="imagereward", choices=["imagereward", "hpsv2", "clip", "jpeg"], help='fitness function name')
 	parser.add_argument('--num-steps', type=int, default=50, help='number of steps for optimization')
 	parser.add_argument('--eta', type=float, default=0.0, help='eta for the DDIM algorithm, eta=0 is ODE-based sampling while eta>0 is SDE-based sampling')
 	parser.add_argument('--guidance-scale', type=float, default=7.5, help='guidance scale for classifier-free guidance')
@@ -306,8 +310,10 @@ if __name__ == "__main__":
 		prompt = data["prompt"]
 
 	    ### Initialize noise vectors, optimzer, etc.
+		# BATCH_SIZE = 2
 		noise_vectors = torch.randn(
-			(args.num_steps + 1, 4, 64, 64), 
+			(args.num_steps + 1, 4, 64, 64), #ORIGINAL
+			# (args.num_steps + 1, BATCH_SIZE, 4, 64, 64), #BATCH SIZE
 			generator=torch.Generator(args.device).manual_seed(args.seed), 
 			device=args.device
 		)
@@ -329,9 +335,15 @@ if __name__ == "__main__":
 				cache_dir=args.cache_dir, 
 				device=args.device
 			)
-			### Take care with negative sign
-			### -1.0x --> Loss
-			###  1.0x --> Score
+			loss_function = lambda x: torch.mean( -1.0 * fitness_callable(x) )
+
+		elif args.fitness_fn == "clip":
+			fitness_callable = clip_gradient_flow_fitness_fn(
+				clip_model_name="openai/clip-vit-base-patch16",
+				prompt=prompt,
+				cache_dir=args.cache_dir,
+				device=args.device
+			)
 			loss_function = lambda x: torch.mean( -1.0 * fitness_callable(x) )
 
 		elif args.fitness_fn == "imagereward":
@@ -340,9 +352,6 @@ if __name__ == "__main__":
 				cache_dir=args.cache_dir, 
 				device=args.device
 			)
-			### Take care with negative sign
-			### -1.0x --> Loss
-			###  1.0x --> Score
 			loss_function = lambda x: torch.mean( -1.0 * fitness_callable(x) )
 		else:
 			raise ValueError(f"Unknown fitness function: {args.fitness_fn}")

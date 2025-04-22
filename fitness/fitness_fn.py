@@ -25,7 +25,7 @@ from torchvision.transforms import (
 	ToTensor,
 )
 
-from .hf_gradient_processors import as_tensor_gradient_flow_clip_image_processor
+from .hf_gradient_processors import CLIPImageProcessorWithTensorGradientFlow, as_tensor_gradient_flow_clip_image_processor
 from huggingface_hub import hf_hub_download
 
 try:
@@ -115,6 +115,42 @@ def clip_fitness_fn(
 
 	return fitness_fn
 
+def clip_grad_tensor_transform(size: int = 224):
+	### Used pt_to_pil and numpy_to_pil as reference for clamp(...) transform
+	return Compose([
+		lambda x: ((x / 2) + 0.5).clamp(0, 1),
+		Resize(size, interpolation=InterpolationMode.BICUBIC),
+		# CenterCrop(size),
+		Normalize(OPENAI_DATASET_MEAN, OPENAI_DATASET_STD)
+	])
+
+def clip_gradient_flow_fitness_fn(
+	clip_model_name,
+	prompt,
+	cache_dir=None,
+	device: str = "cpu",
+	dtype=torch.float32,
+	**kwargs,
+) -> Callable:
+	model = AutoModel.from_pretrained(clip_model_name).eval().to(device=device)
+	processor = CLIPProcessor(
+		 CLIPImageProcessorWithTensorGradientFlow(
+			 size=224,
+			 crop_size={"height": 224, "width": 224},
+		 ), 
+		 AutoTokenizer.from_pretrained(clip_model_name)
+	)
+	_prompt = [prompt] if isinstance(prompt, str) else prompt
+
+	def fitness_fn(img: torch.Tensor | np.ndarray) -> float:
+		inputs = processor(
+			text=_prompt, images=img, return_tensors="pt", padding=True, truncation=True
+		).to(device=device)
+		outputs = model(**inputs)
+		score = outputs[0]
+		return score
+
+	return fitness_fn
 
 ### Adapted from https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/simple_inference.py
 ### Need to manually download https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/6934dd81792f086e613a121dbce43082cb8be85e/sac%2Blogos%2Bava1-l14-linearMSE.pth to cache_dir/
