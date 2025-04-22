@@ -6,6 +6,7 @@ from transformers import CLIPModel, CLIPProcessor, CLIPImageProcessor, AutoProce
 from transformers.image_processing_base import BatchFeature
 from transformers.utils import TensorType
 from torchvision.transforms.functional import center_crop, normalize, resize
+import io
 
 ###
 ### Necessary for DNO to have gradients
@@ -302,9 +303,7 @@ def clip_score(inference_dtype=None, device=None):
 
 
 def jpeg_compressibility(inference_dtype=None, device=None):
-	import io
-	import numpy as np
-	def loss_fn(im_pix_un, prompts):
+	def loss_fn(im_pix_un, prompts = None, **kwargs):
 		images = ((im_pix_un / 2) + 0.5).clamp(0, 1)
 		if isinstance(images, torch.Tensor):
 			images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
