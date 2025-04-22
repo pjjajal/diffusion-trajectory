@@ -353,7 +353,9 @@ if __name__ == "__main__":
 		###
 		### Optimization loop
 		###
+		running_time = 0
 		for t in range(args.opt_steps):
+			start_time = time.time()
 			optimizer.zero_grad()
 
 			with autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
@@ -385,12 +387,14 @@ if __name__ == "__main__":
 				grad_scaler.update()
 
 				print(f"Step {t+1}/{args.opt_steps}, Loss: {loss.item():.4f}, Reward: {reward:.4f}")
+				running_time += time.time() - start_time
 				wandb.log({
 					"Step": t,
 					"Loss": loss.item(),
 					"Reward": reward,
 					"Image": wandb.Image(sample),
 					"Prompt": prompt,
+					"Running Time": running_time,
 				})
 
 		###
@@ -410,13 +414,13 @@ if __name__ == "__main__":
 		
 		loss = loss_function(sample)
 		reward = -loss.item()
-
 		wandb.log({
 			"Step": args.opt_steps,
 			"Loss": loss.item(),
 			"Reward": reward,
 			"Image": wandb.Image(sample),
 			"Prompt": prompt,
+			"Running Time": running_time,
 		})
 
 		
