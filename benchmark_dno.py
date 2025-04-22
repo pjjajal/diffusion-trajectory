@@ -75,10 +75,10 @@ class SequentialDDIM:
 
 		t_ind = self.num_steps - len(self._samples)
 		t = self.scheduler_timesteps[t_ind]
-   
+
 		model_kwargs = {
-			"sample": torch.stack([self._samples[0], self._samples[0]]),
-			"timestep": torch.tensor([t, t], device = self.device),
+			"sample": torch.cat([self._samples[0], self._samples[0]]),
+			"timestep": torch.tensor(2 * self._samples[0].shape[0] * [t], device = self.device),
 			"encoder_hidden_states": prompt_embeds
 		}
 
@@ -136,7 +136,7 @@ def sequential_sampling(pipeline, unet, sampler, prompt_embeds, noise_vectors):
 	return sampler.get_last_sample()
 
 def decode_latent(decoder, latent):
-	img = decoder.decode(latent.unsqueeze(0) / 0.18215).sample
+	img = decoder.decode(latent / 0.18215).sample
 	return img
 
 def to_img(img):
@@ -243,6 +243,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument('--output', type=str, default="output", help='output path')
 	### MODIFIED
 	parser.add_argument('--cache-dir', type=str, default=None)
+	parser.add_argument('--batch-size', type=int, default=1)
 
 	args = parser.parse_args()
 	return args
@@ -307,7 +308,7 @@ if __name__ == "__main__":
 
 	    ### Initialize noise vectors, optimzer, etc.
 		noise_vectors = torch.randn(
-			(args.num_steps + 1, 4, 64, 64), 
+			(args.num_steps + 1, args.batch_size, 4, 64, 64), 
 			generator=torch.Generator(args.device).manual_seed(args.seed), 
 			device=args.device
 		)
@@ -318,7 +319,7 @@ if __name__ == "__main__":
 		prompt_embeds = pipeline._encode_prompt(
 			prompt,
 			args.device,
-			1,
+			args.batch_size,
 			True,
 		)
 
