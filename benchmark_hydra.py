@@ -49,6 +49,7 @@ from fitness import (
     pickscore_fitness_fn,
     relative_luminance,
     jpeg_compressibility,
+    contrast,
 )
 from noise_injection_pipelines import (
     DiffusionSample,
@@ -412,6 +413,9 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
             )
         )
         weights.append(fitness_cfg.fns.imagereward.weight)
+    if fitness_cfg.fns.contrast.active:
+        fitness_fns.append(contrast)
+        weights.append(fitness_cfg.fns.contrast.weight)
     return compose_fitness_fns(fitness_fns, weights)
 
 

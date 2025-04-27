@@ -12,7 +12,8 @@ from .fitness_fn import (
 	relative_luminance,
 	Novelty,
     jpeg_compressibility,
-	mirror_fitness_fn
+	mirror_fitness_fn,
+	contrast,
 )
 
 from .hf_gradient_processors import (
