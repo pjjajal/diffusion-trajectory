@@ -3,10 +3,7 @@ from diffusers import StableDiffusionPipeline, DDIMScheduler, DiffusionPipeline
 from diffusers.utils import pt_to_pil, numpy_to_pil
 import argparse
 import torch.utils.checkpoint as checkpoint
-import os
-import shutil
-from PIL import Image
-import time
+import PIL
 from torch import autocast
 from torch.amp import GradScaler
 from dno.rewards import RFUNCTIONS
@@ -17,13 +14,11 @@ from fitness import (
 	clip_gradient_flow_fitness_fn
 )
 import numpy as np
-import json
 import warnings
-import eval_datasets
+from eval_datasets import create_dataset
 import wandb
 from omegaconf import DictConfig
 import random
-
 warnings.filterwarnings("ignore")
 
 ### This is used to save the config file to wandb
@@ -121,8 +116,6 @@ class SequentialDDIM:
 			self._samples = [self.noise_vectors[-1].detach()]
 
 def sequential_sampling(pipeline, unet, sampler, prompt_embeds, noise_vectors): 
-
-
 	sampler.initialize(noise_vectors)
 
 	model_time = 0
@@ -136,7 +129,6 @@ def sequential_sampling(pipeline, unet, sampler, prompt_embeds, noise_vectors):
 
 # sampling algorithm
 class BatchSequentialDDIM:
-
 	def __init__(self, timesteps = 100, scheduler = None, eta = 0.0, cfg_scale = 4.0, device = "cuda", opt_timesteps = 50):
 		self.eta = eta 
 		self.timesteps = timesteps
@@ -213,25 +205,17 @@ class BatchSequentialDDIM:
 
 	def initialize(self, noise_vectors):
 		self._is_finished = False
-
 		self.noise_vectors = noise_vectors
-
 		self._samples = [self.noise_vectors[-1]]
   
-
 def batch_sequential_sampling(pipeline, unet, sampler, prompt_embeds, noise_vectors): 
-
-
 	sampler.initialize(noise_vectors)
-
 	model_time = 0
 	while not sampler.is_finished():
 		model_kwargs = sampler.prepare_model_kwargs(prompt_embeds = prompt_embeds)
 		model_output = unet(**model_kwargs)
 		sampler.step(model_output) 
-
 	return sampler.get_last_sample()
-
 
 def decode_latent(decoder, latent):
 	img = decoder.decode(latent / 0.18215).sample
@@ -239,7 +223,6 @@ def decode_latent(decoder, latent):
 
 def to_img(img):
 	img = torch.clamp(127.5 * img.cpu() + 128.0, 0, 255).permute(1, 2, 0).to(dtype=torch.uint8).numpy()
-
 	return img
 
 def compute_probability_regularization(noise_vectors, eta, opt_time, subsample, shuffled_times = 100):
@@ -327,8 +310,8 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument('--cache-dir', type=str, default=None,
 						help='cache directory for pretrained models')
-	parser.add_argument('--fitness-fn', type=str, default='imagereward',
-						choices=['imagereward','hpsv2','clip','jpeg'],
+	parser.add_argument('--fitness-fn', type=str, default='jpeg',
+						choices=['jpeg'],
 						help='which reward/fitness function to use')
 	parser.add_argument('--num-steps', type=int, default=50,
 						help='number of DDIM sampling steps')
@@ -344,7 +327,7 @@ def parse_args() -> argparse.Namespace:
 						help='number of optimization steps')
 	parser.add_argument('--opt-time', type=int, default=50,
 						help='number of timesteps to optimize')
-	parser.add_argument('--precision', choices=['fp16','fp32'], default='fp16',
+	parser.add_argument('--precision', choices=['fp16','fp32', 'bf16'], default='fp16',
 						help='mixed precision mode')
 	parser.add_argument('--batch-size', type=int, default=4,
 						help='number of perturbed samples for gradient estimation')
@@ -371,36 +354,46 @@ def main():
 
 	# Device & dtype setup
 	device = torch.device(args.device)
-	use_amp = (args.precision == 'fp16')
-	inference_dtype = torch.float16 if use_amp else torch.float32
-	amp_dtype = torch.float16 if use_amp else torch.float32
+	use_amp = (args.precision == 'fp16' or args.precision == 'bf16')
+	loss_dtype = torch.float32
+	if args.precision == 'bf16':
+		inference_dtype = torch.bfloat16
+		amp_dtype = torch.bfloat16
+	else:
+		inference_dtype = torch.float16 if use_amp else torch.float32
+		amp_dtype = torch.float16 if use_amp else torch.float32
 
 	# Initialize Weights & Biases
 	wandb.init(project='inference-dno', config=vars(args))
 
 	# Load Stable Diffusion pipeline
 	model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+
 	pipeline = DiffusionPipeline.from_pretrained(
 		model_id,
 		use_safetensors=True,
 		cache_dir=args.cache_dir
 	).to(device)
+
+	pipeline.vae.requires_grad_(False)
+	pipeline.text_encoder.requires_grad_(False)
+	pipeline.unet.requires_grad_(False)
+
 	pipeline.vae.to(dtype=inference_dtype)
 	pipeline.text_encoder.to(dtype=inference_dtype)
 	pipeline.unet.to(dtype=inference_dtype)
+
 	pipeline.safety_checker = None
 	pipeline.scheduler = DDIMScheduler.from_config(pipeline.scheduler.config)
 	pipeline.scheduler.set_timesteps(args.num_steps)
 	unet = pipeline.unet
 
 	# Prepare dataset
-	from eval_datasets import create_dataset
-	from omegaconf import DictConfig
 	dataset = create_dataset(DictConfig({'name':'drawbench','cache_dir':args.cache_dir}))
 	iterator = dataset.iter(batch_size=1)
 
 	# AMP gradient scaler
-	scaler = GradScaler(enabled=use_amp, init_scale=8192)
+	# scaler = GradScaler(enabled=use_amp, init_scale=8192)
 
 	# Loop over prompts
 	for data in iterator:
@@ -425,63 +418,19 @@ def main():
 		).to(dtype=inference_dtype)
 
 		# Select fitness / reward function
-		if args.fitness_fn == 'hpsv2':
-			fitness = hpsv2_gradient_flow_fitness_fn(
-				prompt=prompt, cache_dir=args.cache_dir, device=device
-			)
-		elif args.fitness_fn == 'clip':
-			fitness = clip_gradient_flow_fitness_fn(
-				clip_model_name='openai/clip-vit-base-patch16',
-				prompt=prompt, cache_dir=args.cache_dir, device=device
-			)
-		elif args.fitness_fn == 'jpeg':
-			fitness = jpeg_compressibility(
-				device=device, inference_dtype=torch.float32
-			)
-		else:
-			fitness = imagereward_gradient_flow_fitness_fn(
-				prompt=prompt, cache_dir=args.cache_dir, device=device
-			)
+		fitness = jpeg_compressibility(
+			device=device, inference_dtype=torch.float32
+		)
 
 		# Define vector and scalar loss functions
-		vector_loss_fn = lambda imgs: -1.0 * fitness(imgs)           # per-sample loss
-		scalar_loss_fn = lambda imgs: torch.mean(vector_loss_fn(imgs))  # average over batch
+		vector_loss_fn = lambda imgs: -1.0 * fitness(imgs) # per-sample loss
+		scalar_loss_fn = lambda imgs: torch.mean(vector_loss_fn(imgs)) # average over batch
 
 		# Optimization loop
 		for step in range(args.opt_steps):
 			optimizer.zero_grad()
-
 			# 1) Generate current sample via sequential DDIM
-			with autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-				sampler = SequentialDDIM(
-					timesteps=args.num_steps,
-					scheduler=pipeline.scheduler,
-					eta=args.eta,
-					cfg_scale=args.guidance_scale,
-					device=device,
-					opt_timesteps=args.opt_time
-				)
-				latent = sequential_sampling(
-					pipeline, unet, sampler, prompt_embeds, noise_vectors
-				)
-				sample = decode_latent(
-					pipeline.vae, latent.unsqueeze(0)
-				)[0]
-
-			# 2) Compute scalar loss and reward
-			current_loss = scalar_loss_fn(sample.unsqueeze(0))
-			reward = -current_loss.item()
-
-			
-			# 3) Finite-difference gradient estimation
-			nv_flat = noise_vectors.detach().unsqueeze(1)
-			noise_perturb = args.mu * torch.randn(
-				(args.num_steps + 1, args.batch_size, 4, 64, 64),
-				device=device,
-				dtype=inference_dtype
-			)
-			candidates = torch.cat([nv_flat + noise_perturb, nv_flat], dim=1)
-			batch_sampler = BatchSequentialDDIM(
+			sampler = SequentialDDIM(
 				timesteps=args.num_steps,
 				scheduler=pipeline.scheduler,
 				eta=args.eta,
@@ -489,42 +438,72 @@ def main():
 				device=device,
 				opt_timesteps=args.opt_time
 			)
-			latents = batch_sequential_sampling(
-				pipeline, unet, batch_sampler,
-				prompt_embeds, candidates
+			latent = sequential_sampling(
+				pipeline, unet, sampler, prompt_embeds, noise_vectors
 			)
-			imgs = decode_latent(pipeline.vae, latents).to(dtype=torch.float32)
-			losses_vec = vector_loss_fn(imgs)
+			sample = decode_latent(
+				pipeline.vae, latent.unsqueeze(0)
+			)[0]
 
-			# 4) Estimate gradient from finite differences
-			est_grad = torch.zeros_like(imgs[-1])
-			for i in range(args.batch_size):
-				est_grad += (losses_vec[i] - losses_vec[-1]) * (imgs[i] - imgs[-1])
+			# 2) Compute scalar loss and reward
+			current_loss = scalar_loss_fn(sample.unsqueeze(0))
+			reward = -current_loss.item()
+			
+			# # 3) Finite-difference gradient estimation
+			nv_flat = noise_vectors.detach().unsqueeze(1)
+			noise_perturb = args.mu * torch.randn(
+				(args.num_steps + 1, args.batch_size, 4, 64, 64),
+				device=device,
+				dtype=inference_dtype
+			)
+			candidates = torch.cat([nv_flat + noise_perturb, nv_flat], dim=1)
+
+			imgs = torch.zeros(size=(args.batch_size+1, 3, 512, 512), device="cpu", dtype=inference_dtype)
+			losses_vec = torch.zeros(size=(args.batch_size+1,), device="cpu", dtype=inference_dtype)
+
+			# 3) Generate samples for each candidate
+			with torch.no_grad():
+				for candidate_idx in range(candidates.shape[1]):
+					print(f"Gradient Est. Step: {candidate_idx+1}/{args.batch_size+1}")
+					seq_sampler = SequentialDDIM(
+						timesteps=args.num_steps,
+						scheduler=pipeline.scheduler,
+						eta=args.eta,
+						cfg_scale=args.guidance_scale,
+						device=device,
+						opt_timesteps=args.opt_time
+					)
+					latent = sequential_sampling(
+						pipeline, unet, seq_sampler,
+						prompt_embeds, candidates[:, candidate_idx]
+					)
+					img = decode_latent(pipeline.vae, latent.unsqueeze(0))[0]
+					imgs[candidate_idx] = img.to(device="cpu")
+					losses_vec[candidate_idx] = vector_loss_fn(img.unsqueeze(0)).to(device="cpu")
+
+				# 4) Estimate gradient from finite differences
+				est_grad = torch.zeros_like(imgs[-1])
+				for i in range(args.batch_size):
+					est_grad += (losses_vec[i] - losses_vec[-1]) * (imgs[i] - imgs[-1])
+			
 			est_grad = est_grad.mean(dim=0)
 			est_grad /= (torch.norm(est_grad) + 1e-3)
+			est_grad = est_grad.to(device=device)
 
 			# 5) Update noise_vectors by gradient descent
-			with autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-				loss = torch.sum(est_grad * sample)
-				if args.gamma > 0:
-					reg = compute_probability_regularization(
-						noise_vectors, args.eta, args.opt_time, args.subsample
-					)
-					loss = loss + args.gamma * reg
-				scaler.scale(loss).backward()
-				scaler.unscale_(optimizer)
-				torch.nn.utils.clip_grad_norm_([noise_vectors], 1.0)
-				scaler.step(optimizer)
-				scaler.update()
+			loss = torch.sum(est_grad * sample)
+			loss.backward()
+			torch.nn.utils.clip_grad_norm_([noise_vectors], 1.0)
+			optimizer.step()
 
 			# 6) Save and log results
-			img_np = to_img(sample)
 			print(f"Step {step+1}/{args.opt_steps}, Reward={reward:.4f}")
+
 			wandb.log({
 				'Step': step+1,
 				'Reward': reward,
 				'Loss': loss.item(),
-				'Image': wandb.Image(img_np),
+				'Image': wandb.Image(to_img(sample)),
 				'Prompt': prompt,
 			})
 
