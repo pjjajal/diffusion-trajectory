@@ -41,11 +41,11 @@ pipeline:
     bits: "4bit" # ["4bit", "8bit"]
 
 fitness:
-  objective: "max" # ["max", "min"]
+  objective: "min" # ["max", "min"]
   device: "cuda"
   dtype: "float16"
   cache_dir: null
-  problem_splits: 4
+  problem_splits: 1
   fns:
     brightness:
       weight: 1.0
@@ -55,12 +55,12 @@ fitness:
       active: false
     jpeg_compressibility:
       weight: 1.0
-      active: false
+      active: true
     clip:
-      weight: 0.1
+      weight: 1.0
       active: false
       prompt: null
-      model_name: "openai/clip-vit-base-patch32"
+      model_name: "openai/clip-vit-base-patch16"
     aesthetic:
       weight: 1.0
       active: false
@@ -77,18 +77,18 @@ fitness:
       weight: 1.0
       active: false
     imagereward:
-      active: true
+      active: false
       weight: 1.0
 
 noise_injection:
   type: "rotational_transform" # ["rotational_transform", "svd_rot_transform", "noise"]
   add_noise: true
-  mean_scale: 0.05
+  mean_scale: 0.02
   bound: 0.01
 
 solver:
   algorithm: "cosyne" # ["cmaes" , "snes", "pgpe", "cosyne"]
-  initial_bounds: [-5, 5]
+  initial_bounds: [-1, 1]
   initialization:
     mean: 0.0
     std: 1.0
@@ -99,7 +99,7 @@ solver:
     separable: true
     csa_squared: true
   snes:
-    popsize: null
+    popsize: 16
     center_init: null # null | ["latents"]
     stdev_init: 0.2
     radius_init: null
@@ -108,9 +108,9 @@ solver:
   pgpe:
     popsize: 16
     center_init: null # null | ["latents"]
-    center_learning_rate: 2
+    center_learning_rate: 1.0
     stdev_learning_rate: 1.0
-    stdev_init: 0.2
+    stdev_init: 0.1
     radius_init: null
   cosyne:
     popsize: 16

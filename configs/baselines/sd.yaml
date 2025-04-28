@@ -62,7 +62,7 @@ fitness:
       active: false
     clip:
       weight: 1.0
-      active: true
+      active: false
       prompt: null
       model_name: "openai/clip-vit-base-patch16"
     aesthetic:
@@ -81,7 +81,7 @@ fitness:
       active: false
       weight: 1.0
     imagereward:
-      active: false
+      active: true
       weight: 1.0
 
 noise_injection:

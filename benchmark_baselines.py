@@ -48,13 +48,14 @@ def wandb_log(
 
 
 class ZeroOrderSearch:
-    def __init__(self, fitness_fn, population, split_size, threshold, latents):
+    def __init__(self, fitness_fn, population, split_size, threshold, latents, objective):
         super().__init__()
         self.fitness_fn = fitness_fn
         self.population = population
         self.split_size = split_size
         self.threshold = threshold
         self.latents = latents
+        self.objective = objective
 
     # Borrowed from https://github.com/sayakpaul/tt-scale-flux/blob/main/utils.py#L255
     def generate_neighbors(self, x, threshold=0.95, num_neighbors=4):
@@ -93,13 +94,21 @@ class ZeroOrderSearch:
         
         base_fitness = fitnesses[0]
         new_fitnesses = fitnesses[1:]
-        best_fitness = np.max(new_fitnesses)
+        if self.objective == "max":
+            best_fitness = np.max(new_fitnesses)
+            if best_fitness > base_fitness.item():
+                print("Pivoting Latent, best fitness: ", best_fitness, "base fitness: ", base_fitness)
+                best_idx = fitnesses.index(best_fitness.item())
+                best_latent = latents[best_idx]
+                self.latents = best_latent.unsqueeze(0)
+        elif self.objective == "min":
+            best_fitness = np.min(new_fitnesses)
+            if best_fitness < base_fitness.item():
+                print("Pivoting Latent, best fitness: ", best_fitness, "base fitness: ", base_fitness)
+                best_idx = fitnesses.index(best_fitness.item())
+                best_latent = latents[best_idx]
+                self.latents = best_latent.unsqueeze(0)
         print("Best fitness: ", best_fitness, "base fitness: ", base_fitness)
-        if best_fitness > base_fitness.item():
-            print("Pivoting Latent, best fitness: ", best_fitness, "base fitness: ", base_fitness)
-            best_idx = fitnesses.index(best_fitness.item())
-            best_latent = latents[best_idx]
-            self.latents = best_latent.unsqueeze(0)
         print(
             f"Step {step}: best fitness {best_fitness:.4f}, mean fitness {np.mean(fitnesses):.4f}, median fitness {np.median(fitnesses):.4f}"
         )
@@ -108,23 +117,32 @@ class ZeroOrderSearch:
 
 
 
-def random_search(step, sample_fn, fitness_fn, population, split_size):
-    latents = torch.cat([sample_fn.generate_latents() for _ in range(population)])
-    latents = latents.to(sample_fn.device)
+def random_search(step, sample_fn, fitness_fn, population, split_size, objective):
+    latents = torch.randn(
+        (population, *sample_fn.latents.shape[1:]),
+        device=sample_fn.device
+    )
+    # latents = torch.cat([sample_fn.generate_latents() for _ in range(population)])
+    # latents = latents.to(sample_fn.device)
 
     fitnesses = []
     for latent_split in latents.split(split_size):
         imgs = sample_fn(latent_split)
         fitnesses.extend([fitness_fn(img) for img in imgs])
 
-    print(
-        f"Step {step}: best fitness {np.max(fitnesses):.4f}, mean fitness {np.mean(fitnesses):.4f}, median fitness {np.median(fitnesses):.4f}"
-    )
+    if objective == "max":
+        print(
+            f"Step {step}: best fitness {np.max(fitnesses):.4f}, mean fitness {np.mean(fitnesses):.4f}, median fitness {np.median(fitnesses):.4f}"
+        )
+    elif objective == "min":
+        print(
+            f"Step {step}: best fitness {np.min(fitnesses):.4f}, mean fitness {np.mean(fitnesses):.4f}, median fitness {np.median(fitnesses):.4f}"
+        )
     return latents, fitnesses
 
 
 @torch.inference_mode()
-def benchmark(benchmark_cfg: DictConfig, sample_fn, searcher, prompt):
+def benchmark(benchmark_cfg: DictConfig, sample_fn, searcher, prompt, objective):
     start_time = time.time()
     step = 0
 
@@ -134,7 +152,10 @@ def benchmark(benchmark_cfg: DictConfig, sample_fn, searcher, prompt):
         # generate images
         latents, fitnesses = searcher(step, sample_fn)
 
-        best_idx = fitnesses.index(max(fitnesses))
+        if objective == "max":
+            best_idx = fitnesses.index(max(fitnesses))
+        elif objective == "min":
+            best_idx = fitnesses.index(min(fitnesses))
         best_latent = latents[best_idx]
         best_fitness = fitnesses[best_idx]
         img = sample_fn(best_latent.unsqueeze(0))[0]
@@ -221,6 +242,7 @@ def main(cfg: DictConfig):
     else:
         data_iter = dataset
 
+    objective = cfg.fitness.objective # maximize or minimize
     for x in tqdm(data_iter):
         sample_fn.regenerate_latents()
         sample_fn.rembed_text(x["prompt"])
@@ -262,6 +284,7 @@ def main(cfg: DictConfig):
                 fitness_fn=fitness_fn,
                 population=cfg.solver.population,
                 split_size=cfg.solver.split_size,
+                objective=objective,
             )
         elif cfg.solver.algorithm == "zero_order":
             searcher = ZeroOrderSearch(
@@ -270,10 +293,11 @@ def main(cfg: DictConfig):
                 split_size=cfg.solver.split_size,
                 threshold=cfg.solver.threshold,
                 latents=sample_fn.latents,
+                objective=objective,
             )
 
         # run
-        benchmark(cfg.benchmark, sample_fn, searcher, x["prompt"])
+        benchmark(cfg.benchmark, sample_fn, searcher, x["prompt"], objective)
 
 
 if __name__ == "__main__":
