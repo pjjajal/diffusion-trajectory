@@ -79,6 +79,9 @@ fitness:
     imagereward:
       active: true
       weight: 1.0
+    contrast:
+      weight: 1.0
+      active: false
 
 noise_injection:
   type: "noise" # ["rotational_transform", "svd_rot_transform", "noise"]

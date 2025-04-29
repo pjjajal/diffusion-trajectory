@@ -79,6 +79,9 @@ fitness:
     imagereward:
       active: true
       weight: 1.0
+    contrast:
+      weight: 1.0
+      active: false
 
 noise_injection:
   type: "noise" # ["rotational_transform", "svd_rot_transform", "noise"]
@@ -87,7 +90,7 @@ noise_injection:
   bound: 0.1
 
 solver:
-  algorithm: "snes" # ["cmaes" , "snes", "pgpe", "cosyne"]
+  algorithm: "cosyne" # ["cmaes" , "snes", "pgpe", "cosyne"]
   initial_bounds: [-1, 1]
   initialization:
     mean: 0.0

@@ -329,7 +329,7 @@ def parse_args() -> argparse.Namespace:
 						help='number of timesteps to optimize')
 	parser.add_argument('--precision', choices=['fp16','fp32', 'bf16'], default='fp16',
 						help='mixed precision mode')
-	parser.add_argument('--batch-size', type=int, default=4,
+	parser.add_argument('--batch-size', type=int, default=1,
 						help='number of perturbed samples for gradient estimation')
 	parser.add_argument('--mu', type=float, default=0.01,
 						help='finite-difference noise scale')

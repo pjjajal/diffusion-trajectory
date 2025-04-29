@@ -83,12 +83,15 @@ fitness:
     imagereward:
       active: true
       weight: 1.0
+    contrast:
+      weight: 1.0
+      active: false
 
 noise_injection:
   add_noise: false # DO NOT CHANGE
 
 solver:
-  algorithm: "zero_order" # ["random", "zero_order"]
+  algorithm: "random" # ["random", "zero_order"]
   population: 16
   split_size: 16 # this is used to break the batches.
   threshold: 0.95

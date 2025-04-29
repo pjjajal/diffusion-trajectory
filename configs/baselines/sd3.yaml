@@ -16,7 +16,7 @@ benchmark:
     save_dir: "./benchmark_runs"
 
 dataset:
-  name: "drawbench" # [drawbench, custom]
+  name: "open_image_preferences_60" # [drawbench, custom]
   cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
   prompts:
     - "8-bit movie poster for Mad Max with older Mel Gibson and younger female companion, pixelated title text, vibrant retro colors, blocky characters, and a pixel-perfect wasteland backdrop, dynamic perspective, high resolution, sharp focus, dramatic chiaroscuro lighting, energetic atmosphere"
@@ -38,7 +38,7 @@ pipeline:
   dtype: "float16"
   cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
   xformers_mem_eff_attn: true
-  cpu_offload: true
+  cpu_offload: false
   quantize: false
   device: "cuda"
   quantize_cfg:
@@ -78,17 +78,20 @@ fitness:
       model_name: "dino_base"
       top_k: 15
     hpsv2:
-      active: true
-      weight: 1.0
-    imagereward:
       active: false
       weight: 1.0
-
+    imagereward:
+      active: true
+      weight: 1.0
+    contrast:
+      weight: 1.0
+      active: false
+      
 noise_injection:
   add_noise: false # DO NOT CHANGE
 
 solver:
   algorithm: "random" # ["random", "zero_order"]
   population: 16
-  split_size: 8 # this is used to break the batches.
+  split_size: 16 # this is used to break the batches.
   threshold: 0.95
