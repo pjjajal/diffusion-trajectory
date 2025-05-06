@@ -14,7 +14,8 @@ from .fitness_fn import (
     jpeg_compressibility,
 	mirror_fitness_fn,
 	contrast,
-    saturation
+    saturation,
+    ComposeFitnessFns
 )
 
 from .hf_gradient_processors import (

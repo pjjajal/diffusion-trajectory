@@ -1,6 +1,6 @@
 import io
 import os
-from typing import *
+from typing import Callable, Literal, Union
 
 import numpy as np
 import torch
@@ -25,7 +25,10 @@ from torchvision.transforms import (
     ToTensor,
 )
 
-from .hf_gradient_processors import CLIPImageProcessorWithTensorGradientFlow, as_tensor_gradient_flow_clip_image_processor
+from .hf_gradient_processors import (
+    CLIPImageProcessorWithTensorGradientFlow,
+    as_tensor_gradient_flow_clip_image_processor,
+)
 from huggingface_hub import hf_hub_download
 
 try:
@@ -46,13 +49,19 @@ try:
     )
 
 except ImportError:
-    print(f"HPSv2 not able to be imported, see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison for install")
-    print(f"Please download the model from https://huggingface.co/tgxs002/HPSv2 and place it in the cache_dir/")
+    print(
+        f"HPSv2 not able to be imported, see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison for install"
+    )
+    print(
+        f"Please download the model from https://huggingface.co/tgxs002/HPSv2 and place it in the cache_dir/"
+    )
 
 try:
     import ImageReward
 except ImportError:
-    print(f"Imagereward not able to be imported, see https://github.com/THUDM/ImageReward/tree/main for install")
+    print(
+        f"Imagereward not able to be imported, see https://github.com/THUDM/ImageReward/tree/main for install"
+    )
 
 
 ###
@@ -82,6 +91,51 @@ def compose_fitness_fns(fitness_fns: list[Callable], weights: list[float]) -> Ca
     return fitness
 
 
+class ComposeFitnessFns:
+    def __init__(
+        self,
+        fitness_fns: list[Callable],
+        weights: list[float],
+        fn_names: list[str] = None,
+    ):
+        assert len(fitness_fns) == len(weights)
+        self.fitness_fns = fitness_fns
+        self.weights = weights
+        self.fn_names = fn_names
+
+        keys = (
+            [f"fitness.{i}" for i in range(len(fitness_fns))]
+            if fn_names is None
+            else fn_names
+        )
+        self.scores = {key: [] for key in keys}
+
+    def __call__(self, img: torch.Tensor | np.ndarray) -> torch.Tensor:
+        score_list = []
+        for w, fn, fn_name in zip(self.weights, self.fitness_fns, self.fn_names):
+            raw_score = fn(img).cpu()
+            self.scores[fn_name].append(raw_score)
+            score_list.append(w * raw_score)
+        return sum(score_list)
+
+    def clear(self):
+        for key in self.scores.keys():
+            self.scores[key] = []
+
+    def score_stats(self):
+        stats = {}
+        for key, scores in self.scores.items():
+            if len(scores) > 0:
+                stats[f"{key}_mean"] = np.mean(scores)
+                stats[f"{key}_std"] = np.std(scores)
+                stats[f"{key}_median"] = np.median(scores)
+                stats[f"{key}_min"] = np.min(scores)
+                stats[f"{key}_max"] = np.max(scores)
+            else:
+                stats[key] = None
+        return stats
+
+
 ###
 ### CLIP fitness
 ###
@@ -107,7 +161,11 @@ def clip_fitness_fn(
         _prompt = [prompt] if isinstance(prompt, str) else prompt
         # _prompt = [_prompt[0],]
         inputs = processor(
-            text=_prompt, images=pil_imgs, return_tensors="pt", padding=True, truncation=True
+            text=_prompt,
+            images=pil_imgs,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
         ).to(device=device)
         outputs = clip_model(**inputs)
         score = outputs[0][0]
@@ -115,14 +173,18 @@ def clip_fitness_fn(
 
     return fitness_fn
 
+
 def clip_grad_tensor_transform(size: int = 224):
     ### Used pt_to_pil and numpy_to_pil as reference for clamp(...) transform
-    return Compose([
-        lambda x: ((x / 2) + 0.5).clamp(0, 1),
-        Resize(size, interpolation=InterpolationMode.BICUBIC),
-        # CenterCrop(size),
-        Normalize(OPENAI_DATASET_MEAN, OPENAI_DATASET_STD)
-    ])
+    return Compose(
+        [
+            lambda x: ((x / 2) + 0.5).clamp(0, 1),
+            Resize(size, interpolation=InterpolationMode.BICUBIC),
+            # CenterCrop(size),
+            Normalize(OPENAI_DATASET_MEAN, OPENAI_DATASET_STD),
+        ]
+    )
+
 
 def clip_gradient_flow_fitness_fn(
     clip_model_name,
@@ -134,11 +196,11 @@ def clip_gradient_flow_fitness_fn(
 ) -> Callable:
     model = AutoModel.from_pretrained(clip_model_name).eval().to(device=device)
     processor = CLIPProcessor(
-         CLIPImageProcessorWithTensorGradientFlow(
-             size=224,
-             crop_size={"height": 224, "width": 224},
-         ), 
-         AutoTokenizer.from_pretrained(clip_model_name)
+        CLIPImageProcessorWithTensorGradientFlow(
+            size=224,
+            crop_size={"height": 224, "width": 224},
+        ),
+        AutoTokenizer.from_pretrained(clip_model_name),
     )
     _prompt = [prompt] if isinstance(prompt, str) else prompt
 
@@ -151,6 +213,7 @@ def clip_gradient_flow_fitness_fn(
         return score
 
     return fitness_fn
+
 
 ### Adapted from https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/simple_inference.py
 ### Need to manually download https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/6934dd81792f086e613a121dbce43082cb8be85e/sac%2Blogos%2Bava1-l14-linearMSE.pth to cache_dir/
@@ -306,17 +369,21 @@ def pickscore_fitness_fn(
 
     return fitness_fn
 
+
 ### Taken from ImageReward.py
 def imagereward_grad_tensor_transform(size: int = 224):
     ### Used pt_to_pil and numpy_to_pil as reference for clamp(...) transform
-    return Compose([
-        lambda x: ((x / 2) + 0.5).clamp(0, 1),
-        Resize(size, interpolation=InterpolationMode.BICUBIC),
-        # CenterCrop(size),
-        # lambda x: x.convert("RGB"),
-        # ToTensor(),
-        Normalize(OPENAI_DATASET_MEAN, OPENAI_DATASET_STD)
-    ])
+    return Compose(
+        [
+            lambda x: ((x / 2) + 0.5).clamp(0, 1),
+            Resize(size, interpolation=InterpolationMode.BICUBIC),
+            # CenterCrop(size),
+            # lambda x: x.convert("RGB"),
+            # ToTensor(),
+            Normalize(OPENAI_DATASET_MEAN, OPENAI_DATASET_STD),
+        ]
+    )
+
 
 ###
 ### Imagereward (https://arxiv.org/pdf/2501.09732)
@@ -324,7 +391,7 @@ def imagereward_grad_tensor_transform(size: int = 224):
 def imagereward_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
-    
+
     ### Load the model
     imagereward_model = ImageReward.load("ImageReward-v1.0", device=device)
     imagereward_model = imagereward_model.eval()
@@ -336,6 +403,7 @@ def imagereward_fitness_fn(
 
     return fitness_fn
 
+
 ### Adapted from ImageReward.py to accomodate gradients
 def imagereward_gradient_flow_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
@@ -344,54 +412,63 @@ def imagereward_gradient_flow_fitness_fn(
     imagereward_model = ImageReward.load("ImageReward-v1.0", device=device)
     imagereward_model = imagereward_model.eval()
     imagereward_xform = imagereward_grad_tensor_transform(224)
-    text_input = imagereward_model.blip.tokenizer(prompt, padding='max_length', truncation=True, max_length=35, return_tensors="pt").to(device)
+    text_input = imagereward_model.blip.tokenizer(
+        prompt,
+        padding="max_length",
+        truncation=True,
+        max_length=35,
+        return_tensors="pt",
+    ).to(device)
 
     def fitness_fn(img: torch.Tensor) -> float:
         img_tensor = imagereward_xform(img).to(dtype)
         rewards = imagereward_model.score_gard(
-            prompt_attention_mask=text_input.attention_mask, 
-            prompt_ids=text_input.input_ids, 
-            image=img_tensor
+            prompt_attention_mask=text_input.attention_mask,
+            prompt_ids=text_input.input_ids,
+            image=img_tensor,
         )
         return rewards
 
     return fitness_fn
 
+
 def mirror_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
 ) -> Callable:
-    
+
     def fitness_fn(img: torch.Tensor) -> torch.Tensor:
         img = handle_input(img, skip=True)
         B, C, H, W = img.shape
 
-        left_half = img[:, :, :, :W//2]
-        right_half = img[:, :, :, W//2:]
+        left_half = img[:, :, :, : W // 2]
+        right_half = img[:, :, :, W // 2 :]
         right_half_flipped = torch.flip(right_half, dims=[3])  # Horizontal flip
-        
+
         mse = torch.nn.functional.mse_loss(
-            left_half, 
-            right_half_flipped, 
-            reduction='mean'
+            left_half, right_half_flipped, reduction="mean"
         )
 
         ### Why PSNR? Well, its log scale. I hypothesize the smoothness of PSNR over MSE might make it easier to optimize
         ### TODO: Might want to compute max() over a particular dim(s) rather than whole batch
         psnr = 10.0 * torch.log10(left_half.max() / mse)
-        
+
         return psnr
+
 
 ###
 ### HPSv2 (see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison)
 ###
 def hpsv2_grad_tensor_transform(size: int = 224):
     ### Used pt_to_pil and numpy_to_pil as reference for clamp(...) transform
-    return Compose([
-        lambda x: ((x / 2) + 0.5).clamp(0, 1),
-        Resize(size, interpolation=InterpolationMode.BICUBIC),
-        # CenterCrop(size),
-        Normalize(OPENAI_DATASET_MEAN, OPENAI_DATASET_STD)
-    ])
+    return Compose(
+        [
+            lambda x: ((x / 2) + 0.5).clamp(0, 1),
+            Resize(size, interpolation=InterpolationMode.BICUBIC),
+            # CenterCrop(size),
+            Normalize(OPENAI_DATASET_MEAN, OPENAI_DATASET_STD),
+        ]
+    )
+
 
 def hpsv2_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
@@ -406,6 +483,7 @@ def hpsv2_fitness_fn(
 
     return fitness_fn
 
+
 ### HPSv2 with Gradient Flow
 def hpsv2_gradient_flow_fitness_fn(
     prompt: str, cache_dir=None, device: str = "cpu", dtype=torch.float32, **kwargs
@@ -416,7 +494,7 @@ def hpsv2_gradient_flow_fitness_fn(
     model_name = "ViT-H-14"
     model, _, _ = hpsv2_create_model_and_transforms(
         model_name,
-        'laion2B-s32B-b79K',
+        "laion2B-s32B-b79K",
         precision=dtype,
         device=device,
         jit=False,
@@ -431,27 +509,31 @@ def hpsv2_gradient_flow_fitness_fn(
         aug_cfg={},
         output_dict=True,
         with_score_predictor=False,
-        with_region_predictor=False
+        with_region_predictor=False,
     )
 
     hpsv2_xform = hpsv2_grad_tensor_transform(224)
     checkpoint_path = hf_hub_download("xswu/HPSv2", "HPS_v2_compressed.pt")
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint['state_dict'])
+    model.load_state_dict(checkpoint["state_dict"])
     tokenizer = hpsv2_get_tokenizer(model_name)
     model = model.to(device, dtype=dtype)
     model.eval()
-        
-    def fitness_fn(img: torch.Tensor):    
+
+    def fitness_fn(img: torch.Tensor):
         img_tensor = hpsv2_xform(img).to(img.dtype)
         caption = tokenizer(prompt).to(device)
         output_dict = model(img_tensor, caption)
-        image_features, text_features = output_dict["image_features"], output_dict["text_features"]
+        image_features, text_features = (
+            output_dict["image_features"],
+            output_dict["text_features"],
+        )
         logits = image_features @ text_features.T
         score = torch.diagonal(logits)
         return score
-    
+
     return fitness_fn
+
 
 def brightness(img: torch.Tensor | np.ndarray, **kwargs) -> float:
     pil_imgs = handle_input(img)
@@ -461,6 +543,7 @@ def brightness(img: torch.Tensor | np.ndarray, **kwargs) -> float:
     v = torch.tensor(np.mean(np.array(vs)) / 255.0).unsqueeze(0)
     return v
 
+
 def relative_luminance(img: torch.Tensor | np.ndarray, **kwargs) -> torch.Tensor:
     weights = np.array([0.2126, 0.7152, 0.0722])
     pil_imgs = handle_input(img)
@@ -469,6 +552,7 @@ def relative_luminance(img: torch.Tensor | np.ndarray, **kwargs) -> torch.Tensor
     v = [np.mean(img, axis=(0, 1)).sum() / 255.0 for img in imgs]
     v = torch.tensor(v).unsqueeze(0)
     return v
+
 
 def contrast(img: torch.Tensor | np.ndarray, **kwargs) -> torch.Tensor:
     pil_imgs = handle_input(img)
@@ -492,7 +576,7 @@ def contrast(img: torch.Tensor | np.ndarray, **kwargs) -> torch.Tensor:
     # RMS contrast
     for pil_img in pil_imgs:
         arr = np.array(pil_img).astype(np.float32)
-        arr = np.mean(arr, axis=2) # Convert to grayscale
+        arr = np.mean(arr, axis=2)  # Convert to grayscale
         mean = np.mean(arr)
         contrast = np.sqrt(np.mean((arr - mean) ** 2))
         contrast_values.append(contrast)

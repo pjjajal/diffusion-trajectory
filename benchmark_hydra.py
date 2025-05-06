@@ -50,10 +50,10 @@ from fitness import (
     relative_luminance,
     jpeg_compressibility,
     contrast,
-    saturation
+    saturation,
+    ComposeFitnessFns
 )
 from noise_injection_pipelines import (
-    DiffusionSample,
     SDSamplingPipeline,
     LCMSamplingPipeline,
     PixArtSigmaSamplingPipeline,
@@ -352,15 +352,19 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
     cache_dir = fitness_cfg.cache_dir
     fitness_fns = []
     weights = []
+    fitness_fn_names = []
     if fitness_cfg.fns.brightness.active:
         fitness_fns.append(brightness)
         weights.append(fitness_cfg.fns.brightness.weight)
+        fitness_fn_names.append("brightness")
     if fitness_cfg.fns.relative_luminance.active:
         fitness_fns.append(relative_luminance)
         weights.append(fitness_cfg.fns.relative_luminance.weight)
+        fitness_fn_names.append("relative_luminance")
     if fitness_cfg.fns.jpeg_compressibility.active:
         fitness_fns.append(jpeg_compressibility)
         weights.append(fitness_cfg.fns.jpeg_compressibility.weight)
+        fitness_fn_names.append("jpeg_compressibility")
     if fitness_cfg.fns.clip.active:
         clip_prompt = prompt or fitness_cfg.fns.clip.prompt
         fitness_fns.append(
@@ -373,17 +377,20 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
             )
         )
         weights.append(fitness_cfg.fns.clip.weight)
+        fitness_fn_names.append("clip")
     if fitness_cfg.fns.aesthetic.active:
         fitness_fns.append(
             aesthetic_fitness_fn(cache_dir=cache_dir)
         )  # ,gradient_flow=False))
         weights.append(fitness_cfg.fns.aesthetic.weight)
+        fitness_fn_names.append("aesthetic")
     if fitness_cfg.fns.pick.active:
         pickscore_prompt = prompt or fitness_cfg.fns.pick.prompt
         fitness_fns.append(
             pickscore_fitness_fn(prompt=pickscore_prompt, cache_dir=cache_dir)
         )
         weights.append(fitness_cfg.fns.pick.weight)
+        fitness_fn_names.append("pickscore")
     if fitness_cfg.fns.novelty.active:
         fitness_fns.append(
             Novelty(
@@ -393,6 +400,7 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
             )
         )
         weights.append(fitness_cfg.fns.novelty.weight)
+        fitness_fn_names.append("novelty")
     if fitness_cfg.fns.hpsv2.active:
         hpsv2_prompt = prompt or fitness_cfg.fns.hpsv2.prompt
         fitness_fns.append(
@@ -404,6 +412,7 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
             )
         )
         weights.append(fitness_cfg.fns.hpsv2.weight)
+        fitness_fn_names.append("hpsv2")
     if fitness_cfg.fns.imagereward.active:
         imagereward_prompt = prompt or fitness_cfg.fns.imagereward.prompt
         fitness_fns.append(
@@ -414,12 +423,15 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
             )
         )
         weights.append(fitness_cfg.fns.imagereward.weight)
+        fitness_fn_names.append("imagereward")
     if fitness_cfg.fns.contrast.active:
         fitness_fns.append(contrast)
         weights.append(fitness_cfg.fns.contrast.weight)
+        fitness_fn_names.append("contrast")
     if fitness_cfg.fns.saturation.active:
         fitness_fns.append(saturation)
         weights.append(fitness_cfg.fns.saturation.weight)
+        fitness_fn_names.append("saturation")
     return compose_fitness_fns(fitness_fns, weights)
 
 
