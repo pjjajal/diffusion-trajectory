@@ -501,6 +501,14 @@ def contrast(img: torch.Tensor | np.ndarray, **kwargs) -> torch.Tensor:
 
     return v
 
+def saturation(img: torch.Tensor | np.ndarray, **kwargs) -> float:
+    pil_imgs = handle_input(img)
+    pil_imgs = [pil_imgs] if not isinstance(pil_imgs, list) else pil_imgs
+    hsv_imgs = [pil_img.convert("HSV") for pil_img in pil_imgs]
+    ss = [np.array(hsv_img.split()[1]) for hsv_img in hsv_imgs]
+    v = torch.tensor(np.mean(np.array(ss)) / 255.0).unsqueeze(0)
+    return v
+
 class Novelty:
     model_dict = {
         "dino_small": ("facebook/dinov2-small", True),
