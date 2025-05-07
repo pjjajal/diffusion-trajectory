@@ -276,6 +276,7 @@ if __name__ == "__main__":
 
 	### Load eval dataset
 	dataset_config = DictConfig({"name": "drawbench", "cache_dir": args.cache_dir})
+	dataset_config = DictConfig({"name": "open_image_preferences_60", "cache_dir": args.cache_dir})
 	dataset = eval_datasets.create_dataset(dataset_config)
 	dataset_iterator = dataset.iter(batch_size=1)
 

@@ -16,7 +16,7 @@ benchmark:
     save_dir: "./benchmark_runs"
 
 dataset:
-  name: "drawbench" # [drawbench, custom]
+  name: "open_image_preferences_60" # [drawbench, custom]
   cache_dir: null
   prompts:
     - "8-bit movie poster for Mad Max with older Mel Gibson and younger female companion, pixelated title text, vibrant retro colors, blocky characters, and a pixel-perfect wasteland backdrop, dynamic perspective, high resolution, sharp focus, dramatic chiaroscuro lighting, energetic atmosphere"
