@@ -54,6 +54,7 @@ fitness:
   dtype: "float16"
   cache_dir: null
   problem_splits: 4
+  stateful: true
   fns:
     brightness:
       weight: 1.0

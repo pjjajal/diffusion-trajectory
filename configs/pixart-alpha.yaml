@@ -46,6 +46,7 @@ fitness:
   dtype: "float16"
   cache_dir: null
   problem_splits: 2
+  stateful: true
   fns:
     brightness:
       weight: 1.0
@@ -80,6 +81,9 @@ fitness:
       active: true
       weight: 1.0
     contrast:
+      weight: 1.0
+      active: false
+    saturation:
       weight: 1.0
       active: false
 

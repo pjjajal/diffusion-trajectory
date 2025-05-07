@@ -432,6 +432,12 @@ def create_fitness_fn(cfg: DictConfig, prompt: str):
         fitness_fns.append(saturation)
         weights.append(fitness_cfg.fns.saturation.weight)
         fitness_fn_names.append("saturation")
+    if fitness_cfg.stateful:
+        return ComposeFitnessFns(
+            fitness_fns=fitness_fns,
+            weights=weights,
+            fn_names=fitness_fn_names,
+        )
     return compose_fitness_fns(fitness_fns, weights)
 
 
@@ -547,7 +553,11 @@ def measure_torch_device_memory_used_mb(device: torch.device) -> float:
         return -1.0
 
 
-def wandb_log(solver, step, img, prompt, running_time, device):
+def wandb_log(solver, step, img, prompt, running_time, device, fitness_fn=None):
+    score_stats = {}
+    if isinstance(fitness_fn, ComposeFitnessFns):
+        score_stats = fitness_fn.score_stats()
+        fitness_fn.clear()
     wandb.log(
         {
             "step": step,
@@ -558,16 +568,16 @@ def wandb_log(solver, step, img, prompt, running_time, device):
             "prompt": prompt[0],
             "running_time": running_time,
             "memory": measure_torch_device_memory_used_mb(device),
+            **score_stats
         }
     )
 
 
 @torch.inference_mode()
-def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
+def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt, fitness_fn):
     start_time = time.time()
     step = 0
 
-    frames = []
     # initial image
     # img = numpy_to_pil(sample_fn())[0]
     # if benchmark_cfg.wandb.active:
@@ -590,7 +600,7 @@ def benchmark(benchmark_cfg: DictConfig, solver, sample_fn, inner_fn, prompt):
 
         running_time = time.time() - start_time
         if benchmark_cfg.wandb.active:
-            wandb_log(solver, step, img, prompt, running_time, sample_fn.device)
+            wandb_log(solver, step, img, prompt, running_time, sample_fn.device, fitness_fn)
 
         if benchmark_cfg.save_images.active:
             if isinstance(prompt, list):
@@ -699,6 +709,11 @@ def main(cfg: DictConfig):
         baseline_img = sample_fn()
         baseline_fitness = fitness_fn(baseline_img[0])
         img = baseline_img[0]
+
+        score_stats = {}
+        if isinstance(fitness_fn, ComposeFitnessFns):
+            score_stats = fitness_fn.score_stats()
+            fitness_fn.clear()
         if cfg.benchmark.wandb.active:
             wandb.log(
                 {
@@ -710,10 +725,10 @@ def main(cfg: DictConfig):
                     "median_eval": baseline_fitness.item(),
                     "popsize": solver.popsize if hasattr(cfg.solver, "popsize") else -1,
                     "solution_length": solution_length,
+                    **score_stats
                     # "popsize": solver.population.shape[0] if solver.population else -1,
                 }
             )
-
         if cfg.benchmark.save_images.active:
             if isinstance(x["prompt"], list):
                 prompt_name = x["prompt"][0].replace(" ", "_")[:15]
@@ -728,7 +743,7 @@ def main(cfg: DictConfig):
         print(f"Baseline fitness: {baseline_fitness}, Solution Length: {solution_length}")
 
         # run
-        benchmark(cfg.benchmark, solver, sample_fn, inner_fn, x["prompt"])
+        benchmark(cfg.benchmark, solver, sample_fn, inner_fn, x["prompt"], fitness_fn)
 
         del (
             fitness_fn,
