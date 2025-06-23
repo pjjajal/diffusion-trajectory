@@ -6,12 +6,10 @@ import torch
 from vmf.vmf_nes import vMF_NES
 import optax
 
-popsize = 6
+popsize = 4
 es = vMF_NES(
     population_size=popsize, 
-    solution=jnp.zeros((4, 64 ,64)),
-    mean_optimizer=optax.sgd(10.0),
-    kappa_optimizer=optax.sgd(10.0),
+    solution=jnp.zeros((4, 4 ,4))
 )
 
 # Initialize state
@@ -21,11 +19,9 @@ key, subkey, init_key = jax.random.split(key, 3)
 params = es.default_params
 params = params.replace(kappa_init=50.)
 
-
-mean = jax.random.normal(init_key, (4, 64, 64))
+mean = jax.random.normal(init_key, (4, 4, 4))
 state = es.init(subkey, mean, params)
 
-best_sols = []
 old_mean, old_kappa = state.mean, state.kappa
 key, key_ask, key_norm, key_tell = jax.random.split(key, 4)
 
@@ -41,4 +37,4 @@ population = population * norms[:, None, None, None]
 
 print(f"Normed  population: {population}")
 
-# torch_population = torch.from_numpy(np.array(population)).to("cuda")
+# torch_population = torch.from_numpy(np.array(population))

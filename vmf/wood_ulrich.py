@@ -59,6 +59,7 @@ def sample_vmf_wood(key, mu, kappa, n_samples):
         # update where still missing
         w = jnp.where(accept & mask, w_prop, w)
         mask = jnp.where(accept, False, mask)
+        print(f"w: {w}, mask: {mask}")
         return (key, w, mask)
 
     # initialise loop state
@@ -66,12 +67,14 @@ def sample_vmf_wood(key, mu, kappa, n_samples):
     w_init = jnp.zeros((n_samples, *batch_shape))
     mask_init = jnp.full((n_samples, *batch_shape), True)
 
+    ### TODO: Fix this loop. Is broke
     # keep sampling until all n_samples accepted
-    key_out, w_final, _ = lax.while_loop(
-        lambda s: jnp.any(s[2]),
-        body_fun,
-        (sub, w_init, mask_init)
-    )
+    # key_out, w_final, _ = lax.while_loop(
+    #     lambda s: jnp.any(s[2]),
+    #     body_fun,
+    #     (sub, w_init, mask_init)
+    # )
+    key_out, w_final, _ = body_fun((sub, w_init, mask_init))
 
     # tangent direction V: sample Gaussian, project & normalise
     key_V, _ = random.split(key_out)
