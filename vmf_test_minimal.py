@@ -6,7 +6,8 @@ import torch
 from vmf.vmf_nes import vMF_NES
 from vmf.wood_ulrich import sample_vmf_wood
 import optax
-
+from scipy.stats import vonmises_fisher
+from scipy.stats import gaussian_kde
 
 def vmf_nes(popsize, solution_shape):
     es = vMF_NES(
@@ -35,33 +36,49 @@ def vmf_nes(popsize, solution_shape):
     population = population * norms[:, None, None, None]
 
     print(f"Candidate 0 Norm: {jnp.linalg.norm(population[0])}")
+    return population
 
 
-def sample_vmf(popsize, solution_shape):
-    key = jax.random.key(0)
-    key, init_key = jax.random.split(key, 2)    
-
-    mean = jax.random.normal(init_key, (popsize, *solution_shape))
-    mean = mean / jnp.linalg.norm(mean, axis=-1, keepdims=True)
-    
+def sample_vmf(popsize, key, mean):
     x = sample_vmf_wood(
         key=key,
         mu=mean,
-        kappa=50.0,
+        kappa=2.0,
         n_samples=popsize
     )
 
     return x
 
+def sample_scipy_vmf(popsize, mean):
+    x = vonmises_fisher.rvs(
+        mu=mean,
+        kappa=50.0,
+        size=popsize
+    )
 
-# torch_population = torch.from_numpy(np.array(population))
+    return x
+
+
 if __name__ == "__main__":
-    popsize = 4
-    d = 4
+    popsize = 128
+    d = 64
     solution_shape = (d,)
 
-    x = sample_vmf(popsize, solution_shape)
+    key = jax.random.key(0)
+    key, init_key = jax.random.split(key, 2)    
+
+    mean = jax.random.normal(init_key, (1, *solution_shape))
+
+    x = sample_vmf(popsize, key, mean)
     print(f"Sampled vMF: {x}")
     print(f"Sample Norms: {jnp.linalg.norm(x, axis=-1)}")
+    
+    # mean = mean / jnp.linalg.norm(mean, axis=-1, keepdims=True)
+    # y = sample_scipy_vmf(popsize, np.array(mean).squeeze())
 
-    # vmf_nes(popsize, solution_shape)
+    # print(x.shape)
+    # print(y.shape)
+
+    # population = vmf_nes(popsize, solution_shape)
+    # print(f"Population shape: {population.shape}")
+    # print(f"Population norms: {jnp.linalg.norm(population, axis=-1)}")

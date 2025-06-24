@@ -12,7 +12,7 @@ from evosax.types import Fitness, Metrics, Population, Solution
 from flax import struct
 from scipy.stats import vonmises_fisher
 
-from .wood_ulrich import sample_vmf_wood
+from .wood_ulrich import sample_vmf_wood_v2 as sample_vmf_wood
 
 
 def bessel_ratio(nu, maxterms=1000):
@@ -97,6 +97,10 @@ class vMF_NES(DistributionBasedAlgorithm):
     ) -> tuple[Population, State]:
         # We reparameterize the kappa parameter to avoid numerical issues, kappa' is now exp(kappa).
         kappa_prime = jnp.exp(state.kappa).squeeze()
+        print(f"Reparameterized kappa: {kappa_prime}")
+        print(f"Original kappa: {state.kappa}")
+        print(f"Mean shape: {state.mean.shape}, Kappa shape: {kappa_prime.shape}")
+        print(f"Population size: {self.population_size}, num_dims: {self.num_dims}")
         solutions = sample_vmf_wood(key, state.mean, kappa_prime, self.population_size)
         return solutions, state
 
