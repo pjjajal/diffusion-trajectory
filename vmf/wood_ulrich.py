@@ -10,6 +10,11 @@ def _beta(key, a, b, shape):
     gamma2 = random.gamma(k2, b, shape)
     return gamma1 / (gamma1 + gamma2)
 
+def _while_vmf_wood_cond(v):
+    """Condition for while loop: continue until all samples accepted."""
+    # return jnp.logical_not( jnp.all(v[2]) ) # v[2] is the mask of unaccepted samples
+    return jnp.logical_not( jnp.any(v[2]) ) # v[2] is the mask of unaccepted samples
+
 @partial(jax.jit, static_argnums=(3,))
 def sample_vmf_wood(key, mu, kappa, n_samples):
     """
@@ -59,7 +64,6 @@ def sample_vmf_wood(key, mu, kappa, n_samples):
         # update where still missing
         w = jnp.where(accept & mask, w_prop, w)
         mask = jnp.where(accept, False, mask)
-        print(f"w: {w}, mask: {mask}")
         return (key, w, mask)
 
     # initialise loop state
@@ -74,7 +78,14 @@ def sample_vmf_wood(key, mu, kappa, n_samples):
     #     body_fun,
     #     (sub, w_init, mask_init)
     # )
-    key_out, w_final, _ = body_fun((sub, w_init, mask_init))
+    ### Works just fine
+    # key_out, w_final, _ = body_fun((sub, w_init, mask_init))
+
+    key_out, w_final, _ = lax.while_loop(
+        cond_fun=_while_vmf_wood_cond,
+        body_fun=body_fun,
+        init_val=(sub, w_init, mask_init),
+    )
 
     # tangent direction V: sample Gaussian, project & normalise
     key_V, _ = random.split(key_out)
