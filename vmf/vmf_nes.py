@@ -114,7 +114,7 @@ class vMF_NES(DistributionBasedAlgorithm):
         mean = state.mean
         kappa = state.kappa
         kappa = jnp.exp(kappa)
-        d = jnp.asarray(self.solution_shape[0], dtype=jnp.int32)
+        d = jnp.size(self.solution)
 
         # Bessel Ratio 
         # out_type = jax.ShapeDtypeStruct((1,), jnp.float32)
@@ -130,7 +130,7 @@ class vMF_NES(DistributionBasedAlgorithm):
             d=d
         )
 
-        jax.debug.print("Bessel Ratio: {b}", b=bessel_ratio)
+        jax.debug.print("Bessel ratio for d={d}, kappa={k}: {b}", d=d, k=kappa, b=bessel_ratio)
 
         # Compute gradient of the mean
         mean_score = kappa * (population - (population @ mean)[:, jnp.newaxis] * mean)

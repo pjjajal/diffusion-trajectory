@@ -63,9 +63,9 @@ def sample_scipy_vmf(popsize: int, kappa: int, mean: np.ndarray) -> np.ndarray:
     return x
 
 if __name__ == "__main__":
-    popsize = 1024
-    kappa = 2
-    solution_shape = (128,)
+    popsize = 256
+    kappa = 50
+    solution_shape = (32,)
 
     # key = jax.random.key(0)
     # key, init_key = jax.random.split(key, 2)    
@@ -82,24 +82,24 @@ if __name__ == "__main__":
     population_vmf_nes, mean_init = vmf_nes(popsize, kappa, solution_shape)
     # print(f"Population shape: {population_vmf_nes.shape}")
 
-    # mean_init = mean_init / np.linalg.norm(mean_init, axis=-1, keepdims=True)
-    # population_scipy = sample_scipy_vmf(popsize, kappa, mean_init.squeeze())
-    # print(f"Population shape (scipy): {population_scipy.shape}")
+    mean_init = mean_init / np.linalg.norm(mean_init, axis=-1, keepdims=True)
+    population_scipy = sample_scipy_vmf(popsize, kappa, mean_init.squeeze())
+    print(f"Population shape (scipy): {population_scipy.shape}")
 
-    # # Compute MMD between the two populations
-    # def compute_mmd(x, y, kernel='rbf', gamma=None):
-    #     x = np.asarray(x)
-    #     y = np.asarray(y)
-    #     if gamma is None:
-    #         gamma = 1.0 / x.shape[1]
-    #     def rbf(a, b):
-    #         sq_dist = np.sum((a[:, None, :] - b[None, :, :]) ** 2, axis=2)
-    #         return np.exp(-gamma * sq_dist)
-    #     k_xx = rbf(x, x)
-    #     k_yy = rbf(y, y)
-    #     k_xy = rbf(x, y)
-    #     mmd = k_xx.mean() + k_yy.mean() - 2 * k_xy.mean()
-    #     return mmd
+    # Compute MMD between the two populations
+    def compute_mmd(x, y, kernel='rbf', gamma=None):
+        x = np.asarray(x)
+        y = np.asarray(y)
+        if gamma is None:
+            gamma = 1.0 / x.shape[1]
+        def rbf(a, b):
+            sq_dist = np.sum((a[:, None, :] - b[None, :, :]) ** 2, axis=2)
+            return np.exp(-gamma * sq_dist)
+        k_xx = rbf(x, x)
+        k_yy = rbf(y, y)
+        k_xy = rbf(x, y)
+        mmd = k_xx.mean() + k_yy.mean() - 2 * k_xy.mean()
+        return mmd
 
-    # mmd_pop = compute_mmd(np.array(population_vmf_nes), population_scipy)
-    # print(f"MMD between populations: {mmd_pop}")
+    mmd_pop = compute_mmd(np.array(population_vmf_nes), population_scipy)
+    print(f"MMD between populations: {mmd_pop}")
