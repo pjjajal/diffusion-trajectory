@@ -10,7 +10,7 @@ from scipy.stats import vonmises_fisher
 from scipy.stats import gaussian_kde
 
 def vmf_nes(popsize, solution_shape):
-    es = vMF_NES(
+    vmf_nes = vMF_NES(
         population_size=popsize, 
         solution=jnp.zeros(solution_shape)
     )
@@ -19,23 +19,22 @@ def vmf_nes(popsize, solution_shape):
     key = jax.random.key(0)
 
     key, subkey, init_key = jax.random.split(key, 3)
-    params = es.default_params
+    params = vmf_nes.default_params
     params = params.replace(kappa_init=50.)
-
-    mean = jax.random.normal(init_key, solution_shape)
-    state = es.init(subkey, mean, params)
+    mean_init = jax.random.normal(init_key, (1, *solution_shape))
+    state = vmf_nes.init(subkey, mean_init, params)
 
     old_mean, old_kappa = state.mean, state.kappa
     key, key_ask, key_norm, key_tell = jax.random.split(key, 4)
 
-    population, state = es.ask(key_ask, state, params)
+    population, state = vmf_nes.ask(key_ask, state, params)
 
-    norms = jnp.sqrt(
-        jax.random.chisquare(key_norm, es.num_dims, (popsize,))
-    )
-    population = population * norms[:, None, None, None]
+    ### Question: Do we need this? I don't think so
+    # norms = jnp.sqrt(
+    #     jax.random.chisquare(key_norm, vmf_nes.num_dims, (popsize,))
+    # )
+    # population = population * norms[:, None, None, None]
 
-    print(f"Candidate 0 Norm: {jnp.linalg.norm(population[0])}")
     return population
 
 
@@ -64,14 +63,14 @@ if __name__ == "__main__":
     kappa = 50
     solution_shape = (d,)
 
-    key = jax.random.key(0)
-    key, init_key = jax.random.split(key, 2)    
-    mean = jax.random.normal(init_key, (1, *solution_shape))
+    # key = jax.random.key(0)
+    # key, init_key = jax.random.split(key, 2)    
+    # mean = jax.random.normal(init_key, (1, *solution_shape))
 
-    x = sample_vmf(popsize, key, kappa, mean)
+    # x = sample_vmf(popsize, key, kappa, mean)
 
-    x_norm = jnp.linalg.norm(x, axis=-1)
-    print(f"Sample norms allclose to 1.0: {jnp.allclose(x_norm, 1.0)}")
+    # x_norm = jnp.linalg.norm(x, axis=-1)
+    # print(f"Sample norms allclose to 1.0: {jnp.allclose(x_norm, 1.0)}")
     
     # mean = mean / jnp.linalg.norm(mean, axis=-1, keepdims=True)
     # y = sample_scipy_vmf(popsize, kappa, np.array(mean).squeeze())
@@ -79,6 +78,6 @@ if __name__ == "__main__":
     # print(x.shape)
     # print(y.shape)
 
-    # population = vmf_nes(popsize, solution_shape)
-    # print(f"Population shape: {population.shape}")
-    # print(f"Population norms: {jnp.linalg.norm(population, axis=-1)}")
+    population = vmf_nes(popsize, solution_shape)
+    print(f"Population shape: {population.shape}")
+    print(f"Population norms: {jnp.linalg.norm(population, axis=-1)}")
