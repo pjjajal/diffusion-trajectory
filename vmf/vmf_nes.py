@@ -13,6 +13,9 @@ from evosax.algorithms.distribution_based.base import (
 from evosax.core.fitness_shaping import centered_rank_fitness_shaping_fn
 from evosax.types import Fitness, Metrics, Population, Solution
 from flax import struct
+import mpmath
+from mpmath import mp, besseli, log
+mp.dps = 50
 
 from .wood_ulrich import sample_vmf_wood_v2 as sample_vmf_wood
 
@@ -60,8 +63,8 @@ class vMF_NES(DistributionBasedAlgorithm):
         super().__init__(population_size, solution, fitness_shaping_fn, metrics_fn)
         self.mean_opt = mean_optimizer
         self.kappa_opt = kappa_optimizer
+        self.solution_shape = tuple(solution.shape)
 
-    # ------------- initialisation -----------------------------------
     @property
     def _default_params(self) -> Params:
         return Params()
@@ -74,11 +77,11 @@ class vMF_NES(DistributionBasedAlgorithm):
         state = State(
             key=key,
             mean=mean_init,
-            kappa=jnp.full((1,), jnp.log(params.kappa_init)),  # store log-κ
+            kappa=jnp.log(params.kappa_init),
             mean_opt_state=self.mean_opt.init(mean_init),
             kappa_opt_state=self.kappa_opt.init(jnp.zeros((1,))),
             best_solution=jnp.full_like(mean_init, jnp.nan),
-            best_solution_kappa=jnp.full((1,), jnp.nan),
+            best_solution_kappa=jnp.nan,
             best_fitness=jnp.inf,
             generation_counter=jnp.array(0, jnp.int32),
         )
@@ -88,9 +91,17 @@ class vMF_NES(DistributionBasedAlgorithm):
         self, key: jax.Array, state: State, params: Params
     ) -> tuple[Population, State]:
         key, subkey = jax.random.split(state.key)
-        kappa = jnp.exp(state.kappa).squeeze()                 # positive scale
+        kappa = jnp.exp(state.kappa)
         pop = sample_vmf_wood(subkey, state.mean, kappa, self.population_size)
-        return pop, state.replace(key=key)
+        return pop, state.replace(key=key, generation_counter=state.generation_counter+1)
+
+    def _log_bessel_ratio(self, kappa, d) -> float:
+        kappa = float(kappa)
+        d = int(d)
+
+        return float( 
+            log(besseli(d + 1, kappa)) - log(besseli(d, kappa)) 
+        )
 
     def _tell(
         self,
@@ -103,12 +114,23 @@ class vMF_NES(DistributionBasedAlgorithm):
         mean = state.mean
         kappa = state.kappa
         kappa = jnp.exp(kappa)
+        d = jnp.asarray(self.solution_shape[0], dtype=jnp.int32)
 
         # Bessel Ratio 
         # out_type = jax.ShapeDtypeStruct((1,), jnp.float32)
         # TODO: Figure out how to fix convergence issues with the bessel_ratio function
         # bessel_ratio = jax.pure_callback(self.bessel_ratio, out_type, kappa)
-        bessel_ratio = jnp.array(1.0, dtype=jnp.float32)
+        # bessel_ratio = jnp.array(1.0, dtype=jnp.float32)
+        # Prototype: Compute Bessel ration in logspace. This allows us to ensure "bessel_ratio" is a function of kappa, while being numerically stable.
+
+        bessel_ratio = jax.pure_callback( 
+            callback=self._log_bessel_ratio,
+            result_shape_dtypes=jax.ShapeDtypeStruct((), jnp.float32),
+            kappa=kappa,
+            d=d
+        )
+
+        jax.debug.print("Bessel Ratio: {b}", b=bessel_ratio)
 
         # Compute gradient of the mean
         mean_score = kappa * (population - (population @ mean)[:, jnp.newaxis] * mean)
