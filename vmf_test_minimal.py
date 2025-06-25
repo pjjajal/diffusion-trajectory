@@ -9,7 +9,7 @@ import optax
 from scipy.stats import vonmises_fisher
 from scipy.stats import gaussian_kde
 
-def vmf_nes(popsize, solution_shape):
+def vmf_nes(popsize, kappa, solution_shape):
     vmf_nes = vMF_NES(
         population_size=popsize, 
         solution=jnp.zeros(solution_shape)
@@ -20,7 +20,7 @@ def vmf_nes(popsize, solution_shape):
 
     key, subkey, init_key = jax.random.split(key, 3)
     params = vmf_nes.default_params
-    params = params.replace(kappa_init=50.)
+    params = params.replace(kappa_init=kappa)
     mean_init = jax.random.normal(init_key, (1, *solution_shape))
     state = vmf_nes.init(subkey, mean_init, params)
 
@@ -28,15 +28,7 @@ def vmf_nes(popsize, solution_shape):
     key, key_ask, key_norm, key_tell = jax.random.split(key, 4)
 
     population, state = vmf_nes.ask(key_ask, state, params)
-
-    ### Question: Do we need this? I don't think so
-    # norms = jnp.sqrt(
-    #     jax.random.chisquare(key_norm, vmf_nes.num_dims, (popsize,))
-    # )
-    # population = population * norms[:, None, None, None]
-
-    return population
-
+    return population, np.array(mean_init)
 
 def sample_vmf(popsize: int, key: jax.Array, kappa: float | jax.Array, mean: jax.Array) -> jax.Array:
     x = sample_vmf_wood(
@@ -58,7 +50,7 @@ def sample_scipy_vmf(popsize: int, kappa: int, mean: np.ndarray) -> np.ndarray:
     return x
 
 if __name__ == "__main__":
-    popsize = 128
+    popsize = 2048
     d = 64
     kappa = 50
     solution_shape = (d,)
@@ -77,7 +69,27 @@ if __name__ == "__main__":
 
     # print(x.shape)
     # print(y.shape)
+    population_vmf_nes, mean_init = vmf_nes(popsize, kappa, solution_shape)
+    print(f"Population shape: {population_vmf_nes.shape}")
 
-    population = vmf_nes(popsize, solution_shape)
-    print(f"Population shape: {population.shape}")
-    print(f"Population norms: {jnp.linalg.norm(population, axis=-1)}")
+    mean_init = mean_init / np.linalg.norm(mean_init, axis=-1, keepdims=True)
+    population_scipy = sample_scipy_vmf(popsize, kappa, mean_init.squeeze())
+    print(f"Population shape (scipy): {population_scipy.shape}")
+
+    # Compute MMD between the two populations
+    def compute_mmd(x, y, kernel='rbf', gamma=None):
+        x = np.asarray(x)
+        y = np.asarray(y)
+        if gamma is None:
+            gamma = 1.0 / x.shape[1]
+        def rbf(a, b):
+            sq_dist = np.sum((a[:, None, :] - b[None, :, :]) ** 2, axis=2)
+            return np.exp(-gamma * sq_dist)
+        k_xx = rbf(x, x)
+        k_yy = rbf(y, y)
+        k_xy = rbf(x, y)
+        mmd = k_xx.mean() + k_yy.mean() - 2 * k_xy.mean()
+        return mmd
+
+    mmd_pop = compute_mmd(np.array(population_vmf_nes), population_scipy)
+    print(f"MMD between populations: {mmd_pop}")
