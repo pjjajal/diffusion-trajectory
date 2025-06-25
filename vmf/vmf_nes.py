@@ -17,14 +17,11 @@ from flax import struct
 from .wood_ulrich import sample_vmf_wood_v2 as sample_vmf_wood
 
 
-# ---------------------------------------------------------------------
-# Dataclasses
-# ---------------------------------------------------------------------
 @struct.dataclass
 class State(BaseState):
     key: jax.Array
-    mean: jax.Array # unit vector (d,)
-    kappa: jax.Array # log-κ  (1,)
+    mean: jax.Array
+    kappa: jax.Array
     mean_opt_state: optax.OptState
     kappa_opt_state: optax.OptState
     best_solution: Solution
@@ -36,9 +33,6 @@ class State(BaseState):
 class Params(BaseParams):
     kappa_init: float = 1.0
 
-# ---------------------------------------------------------------------
-# Metric hook
-# ---------------------------------------------------------------------
 def metrics_fn(
     key: jax.Array,
     population: Population,
@@ -48,10 +42,6 @@ def metrics_fn(
 ) -> Metrics:
     return base_metrics_fn(key, population, fitness, state, params)
 
-
-# ---------------------------------------------------------------------
-# Algorithm
-# ---------------------------------------------------------------------
 class vMF_NES(DistributionBasedAlgorithm):
     """
     Natural-evolution strategy on the von Mises-Fisher manifold
@@ -115,10 +105,10 @@ class vMF_NES(DistributionBasedAlgorithm):
         kappa = jnp.exp(kappa)
 
         # Bessel Ratio 
-        out_type = jax.ShapeDtypeStruct((1,), jnp.float32)
+        # out_type = jax.ShapeDtypeStruct((1,), jnp.float32)
         # TODO: Figure out how to fix convergence issues with the bessel_ratio function
         # bessel_ratio = jax.pure_callback(self.bessel_ratio, out_type, kappa)
-        bessel_ratio = 1
+        bessel_ratio = jnp.array(1.0, dtype=jnp.float32)
 
         # Compute gradient of the mean
         mean_score = kappa * (population - (population @ mean)[:, jnp.newaxis] * mean)
@@ -143,10 +133,10 @@ class vMF_NES(DistributionBasedAlgorithm):
         grad_kappa = (F_kappa_kappa ** -1) * kappa_grad
 
         # Update mean and kappa
-        updates_mean, mean_opt_state = self.mean_optimizer.update(grad_mean, state.mean_opt_state)
+        updates_mean, mean_opt_state = self.mean_opt.update(grad_mean, state.mean_opt_state)
         mean = optax.apply_updates(state.mean, updates_mean)
 
-        updates_kappa, kappa_opt_state = self.kappa_optimizer.update(grad_kappa, state.kappa_opt_state)
+        updates_kappa, kappa_opt_state = self.kappa_opt.update(grad_kappa, state.kappa_opt_state)
         kappa = optax.apply_updates(state.kappa, updates_kappa)
 
         return state.replace(

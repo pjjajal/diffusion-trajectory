@@ -17,17 +17,30 @@ def vmf_nes(popsize, kappa, solution_shape):
 
     # Initialize state
     key = jax.random.key(0)
-
-    key, subkey, init_key = jax.random.split(key, 3)
+    key, mean_init_key, init_key = jax.random.split(key, 3)
     params = vmf_nes.default_params
     params = params.replace(kappa_init=kappa)
-    mean_init = jax.random.normal(init_key, (1, *solution_shape))
-    state = vmf_nes.init(subkey, mean_init, params)
+    mean_init = jax.random.normal(mean_init_key, (1, *solution_shape))
 
-    old_mean, old_kappa = state.mean, state.kappa
-    key, key_ask, key_norm, key_tell = jax.random.split(key, 4)
+    state = vmf_nes.init(init_key, mean_init, params)
+    key_ask, key_tell = jax.random.split(key, 2)
 
+    ### Ask, yield a population
     population, state = vmf_nes.ask(key_ask, state, params)
+
+    ### Tell, update ES distribution
+    new_state, metrics = vmf_nes.tell(
+        key=key_tell,
+        population=population,
+        fitness=jnp.ones(popsize),
+        state=state,
+        params=params
+    )
+
+    print("Norm of new_state mean:", jnp.linalg.norm(new_state.mean))
+    print("Norm of mean_init:", jnp.linalg.norm(state.mean))
+    print(f"New state metrics: {metrics}\n")
+
     return population, np.array(mean_init)
 
 def sample_vmf(popsize: int, key: jax.Array, kappa: float | jax.Array, mean: jax.Array) -> jax.Array:
