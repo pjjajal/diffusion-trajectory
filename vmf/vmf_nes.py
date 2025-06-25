@@ -130,6 +130,8 @@ class vMF_NES(DistributionBasedAlgorithm):
             d=d
         )
 
+        bessel_ratio = jnp.exp(bessel_ratio)
+
         jax.debug.print("Bessel ratio for d={d}, kappa={k}: {b}", d=d, k=kappa, b=bessel_ratio)
 
         # Compute gradient of the mean
