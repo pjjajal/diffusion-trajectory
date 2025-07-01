@@ -8,6 +8,7 @@ from vmf.wood_ulrich import sample_vmf_wood_v2 as sample_vmf_wood
 import optax
 from scipy.stats import vonmises_fisher
 from scipy.stats import gaussian_kde
+from evosax.core.fitness_shaping import identity_fitness_shaping_fn
 
 def vmf_nes(popsize, kappa, solution_shape):
     vmf_nes = vMF_NES(
@@ -63,13 +64,46 @@ def sample_scipy_vmf(popsize: int, kappa: int, mean: np.ndarray) -> np.ndarray:
     return x
 
 if __name__ == "__main__":
-    popsize = 256
+    popsize = 1
     kappa = 50
     solution_shape = (32,)
 
-    # key = jax.random.key(0)
-    # key, init_key = jax.random.split(key, 2)    
-    # mean = jax.random.normal(init_key, (1, *solution_shape))
+    rng_key = jax.random.key(0)
+    rng_key, rng_init_key = jax.random.split(rng_key, 2)    
+    mean = jax.random.normal(rng_init_key, (1, *solution_shape))
+
+    solver = vMF_NES(
+        population_size=popsize,
+        solution=mean,
+        mean_optimizer=optax.sgd(learning_rate=1e-4),
+        kappa_optimizer=optax.sgd(learning_rate=1e-4)
+    )
+    solver_params = solver.default_params
+    solver_params = solver_params.replace(kappa_init=kappa)
+
+    solver_state = solver.init(
+        rng_key, 
+        mean, 
+        solver_params
+    )
+
+    rng_key, rng_key_ask, rng_key_tell = jax.random.split(rng_key, 3)
+    jax_population, solver_state = solver.ask(
+        key=rng_key_ask, 
+        state=solver_state, 
+        params=solver_params
+    )
+
+    jax_fitnesses = jax.random.normal(rng_key_ask, shape=(popsize,))
+
+    ### Tell
+    solver_state, metrics = solver.tell(
+        key=rng_key_tell, 
+        population=jax_population, 
+        fitness=jax_fitnesses, 
+        state=solver_state, 
+        params=solver_params
+    )
 
     # x = sample_vmf(popsize, key, kappa, mean)
 
@@ -79,27 +113,25 @@ if __name__ == "__main__":
     # mean = mean / jnp.linalg.norm(mean, axis=-1, keepdims=True)
     # y = sample_scipy_vmf(popsize, kappa, np.array(mean).squeeze())
 
-    population_vmf_nes, mean_init = vmf_nes(popsize, kappa, solution_shape)
-    # print(f"Population shape: {population_vmf_nes.shape}")
+    # population_vmf_nes, mean_init = vmf_nes(popsize, kappa, solution_shape)
 
-    mean_init = mean_init / np.linalg.norm(mean_init, axis=-1, keepdims=True)
-    population_scipy = sample_scipy_vmf(popsize, kappa, mean_init.squeeze())
-    print(f"Population shape (scipy): {population_scipy.shape}")
+    # mean_init = mean_init / np.linalg.norm(mean_init, axis=-1, keepdims=True)
+    # population_scipy = sample_scipy_vmf(popsize, kappa, mean_init.squeeze())
+    # print(f"Population shape (scipy): {population_scipy.shape}")
 
-    # Compute MMD between the two populations
-    def compute_mmd(x, y, kernel='rbf', gamma=None):
-        x = np.asarray(x)
-        y = np.asarray(y)
-        if gamma is None:
-            gamma = 1.0 / x.shape[1]
-        def rbf(a, b):
-            sq_dist = np.sum((a[:, None, :] - b[None, :, :]) ** 2, axis=2)
-            return np.exp(-gamma * sq_dist)
-        k_xx = rbf(x, x)
-        k_yy = rbf(y, y)
-        k_xy = rbf(x, y)
-        mmd = k_xx.mean() + k_yy.mean() - 2 * k_xy.mean()
-        return mmd
+    # def compute_mmd(x, y, kernel='rbf', gamma=None):
+    #     x = np.asarray(x)
+    #     y = np.asarray(y)
+    #     if gamma is None:
+    #         gamma = 1.0 / x.shape[1]
+    #     def rbf(a, b):
+    #         sq_dist = np.sum((a[:, None, :] - b[None, :, :]) ** 2, axis=2)
+    #         return np.exp(-gamma * sq_dist)
+    #     k_xx = rbf(x, x)
+    #     k_yy = rbf(y, y)
+    #     k_xy = rbf(x, y)
+    #     mmd = k_xx.mean() + k_yy.mean() - 2 * k_xy.mean()
+    #     return mmd
 
-    mmd_pop = compute_mmd(np.array(population_vmf_nes), population_scipy)
-    print(f"MMD between populations: {mmd_pop}")
+    # mmd_pop = compute_mmd(np.array(population_vmf_nes), population_scipy)
+    # print(f"MMD between populations: {mmd_pop}")

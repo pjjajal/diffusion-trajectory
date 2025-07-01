@@ -4,6 +4,8 @@ import jax.scipy.special as jsp
 import optax
 from functools import partial
 
+from evosax.core.fitness_shaping import identity_fitness_shaping_fn
+from evosax.algorithms.base import update_best_solution_and_fitness
 from evosax.algorithms.distribution_based.base import (
     DistributionBasedAlgorithm,
     Params as BaseParams,
@@ -29,7 +31,7 @@ class State(BaseState):
     kappa_opt_state: optax.OptState
     best_solution: Solution
     best_solution_kappa: Solution
-    best_fitness: float
+    best_fitness: jax.Array
     generation_counter: jax.Array
 
 @struct.dataclass
@@ -73,6 +75,7 @@ class vMF_NES(DistributionBasedAlgorithm):
     def init(self, key: jax.Array, mean_init: Solution, params: Params) -> State:
         mean_init = self._ravel_solution(mean_init)
         mean_init = mean_init / jnp.linalg.norm(mean_init)     # ensure unit norm
+        self.fitness_shaping_fn = identity_fitness_shaping_fn
 
         state = State(
             key=key,
@@ -80,9 +83,9 @@ class vMF_NES(DistributionBasedAlgorithm):
             kappa=jnp.log(params.kappa_init),
             mean_opt_state=self.mean_opt.init(mean_init),
             kappa_opt_state=self.kappa_opt.init(jnp.zeros((1,))),
-            best_solution=jnp.full_like(mean_init, jnp.nan),
-            best_solution_kappa=jnp.nan,
-            best_fitness=jnp.inf,
+            best_solution=jnp.full_like(mean_init, 0),
+            best_solution_kappa=jnp.array(0, jnp.float32),
+            best_fitness=jnp.array(0, jnp.float32),
             generation_counter=jnp.array(0, jnp.int32),
         )
         return state
@@ -116,13 +119,6 @@ class vMF_NES(DistributionBasedAlgorithm):
         kappa = jnp.exp(kappa)
         d = jnp.size(self.solution)
 
-        # Bessel Ratio 
-        # out_type = jax.ShapeDtypeStruct((1,), jnp.float32)
-        # TODO: Figure out how to fix convergence issues with the bessel_ratio function
-        # bessel_ratio = jax.pure_callback(self.bessel_ratio, out_type, kappa)
-        # bessel_ratio = jnp.array(1.0, dtype=jnp.float32)
-        # Prototype: Compute Bessel ration in logspace. This allows us to ensure "bessel_ratio" is a function of kappa, while being numerically stable.
-
         bessel_ratio = jax.pure_callback( 
             callback=self._log_bessel_ratio,
             result_shape_dtypes=jax.ShapeDtypeStruct((), jnp.float32),
@@ -131,8 +127,6 @@ class vMF_NES(DistributionBasedAlgorithm):
         )
 
         bessel_ratio = jnp.exp(bessel_ratio)
-
-        jax.debug.print("Bessel ratio for d={d}, kappa={k}: {b}", d=d, k=kappa, b=bessel_ratio)
 
         # Compute gradient of the mean
         mean_score = kappa * (population - (population @ mean)[:, jnp.newaxis] * mean)
@@ -145,7 +139,8 @@ class vMF_NES(DistributionBasedAlgorithm):
         kappa_grad = jnp.mean(kappa_grad, axis=0)
 
         # FIM mean block
-        F_mu_mu = kappa * bessel_ratio * (jnp.eye(self.num_dims) - jnp.outer(mean, mean))
+        # NOTE: Not needed, taking advantage of the fact that F_mu_mu, and inverse of F_mu_mu is orthogonal to mean_grad
+        # F_mu_mu = kappa * bessel_ratio * (jnp.eye(self.num_dims) - jnp.outer(mean, mean))
 
         # FIM kappa block
         F_kappa_kappa = 1 + ((1 - self.num_dims) / kappa) * bessel_ratio - (bessel_ratio**2) / (kappa**2)
@@ -153,8 +148,14 @@ class vMF_NES(DistributionBasedAlgorithm):
 
         # Compute natural gradient.
         # TODO: Pinv is very expensive, we should look into more efficient algorithms.
-        grad_mean = jnp.linalg.pinv(F_mu_mu, hermitian=True, rcond=0.1) @ mean_grad
+        # NOTE: Take advantage of the fact that F_mu_mu, and inverse of F_mu_mu is orthogonal to mean_grad
+        # Thus, we do not need to do jnp.linalg.pinv(...)
+        scalar_grad_term = jnp.array(1.0 / (kappa * bessel_ratio + 1e-8), dtype=jnp.float32)
+        grad_mean = mean_grad * scalar_grad_term
+        # grad_mean = jnp.linalg.pinv(F_mu_mu, hermitian=True, rcond=0.1) @ mean_grad
         grad_kappa = (F_kappa_kappa ** -1) * kappa_grad
+        jax.debug.print("grad_mean={g}", g=grad_mean, ordered=True)
+        jax.debug.print("grad_kappa={g}", g=grad_kappa, ordered=True)
 
         # Update mean and kappa
         updates_mean, mean_opt_state = self.mean_opt.update(grad_mean, state.mean_opt_state)
