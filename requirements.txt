@@ -3,6 +3,7 @@ torch
 torchaudio
 sentencepiece
 transformers
+datasets
 numpy
 pandas
 scipy
@@ -12,7 +13,6 @@ evotorch
 ipykernel
 ipywidgets
 treescope
-# hpsv2
 hpsv2x # this is hpsv2 with a bug fix.
 image-reward
 ml-collections
@@ -21,6 +21,7 @@ inflect
 pydantic
 ipdb
 open_clip_torch
+clip
 jupyterlab
 wandb[media]
 bitsandbytes
