@@ -7,14 +7,18 @@ Diffusion models are state-of-the-art generative models in various domains, yet 
 
 <!-- Installation Guide -->
 # Installation 
+Create a virtual environment (or not) and install dependencies via `requirements.txt`
 ```bash
-python -m pip install ./
+python -m pip install -r requirements.txt
 ```
+[!NOTE] If using Aesthetic, HPSv2, or ImageReward, additional steps must be taken, which are detailed in `fitness/fitness_fn.py`
 
 # Directory Structure & Notes
 **Datasets:** The `eval_datasets/open_img_pref` folder contains the subset of 60 Open Image Preferences prompts we used.
 
 **Direct Noise Optimization (DNO):** We re-implemented DNO for evaluation with our method, specifically we modified the code such that our reward function implementations can be used with their approach, for "fair" evaluation and benchmarking.
+
+**Outputs:** Output from `benchmark_hydra.py` will be dumped to `outputs/` under a timestamped directory, specific to the current run.
 
 <!-- Usage Guide -->
 # Usage
@@ -23,7 +27,7 @@ This is the main evaluation script for our method.
 Below is an example use of `benchmark_hydra.py` using the `configs/sd.yaml` configuration.
 
 ```bash
-> sudo bash scripts/jetson_agxorin_set_clocks.sh
+> python benchmark_dno.py -cn sd
 ```
 
 ## benchmark_dno.py
