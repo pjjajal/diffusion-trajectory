@@ -13,6 +13,25 @@ python -m pip install -r requirements.txt
 ```
 > [!CAUTION] 
 > If using Aesthetic, HPSv2, or ImageReward, additional steps must be taken, which are detailed in `fitness/fitness_fn.py`
+> See relevant code below:
+```python
+...
+except ImportError:
+    print(
+        f"HPSv2 not able to be imported, see https://github.com/tgxs002/HPSv2?tab=readme-ov-file#image-comparison for install"
+    )
+    print(
+        f"Please download the model from https://huggingface.co/tgxs002/HPSv2 and place it in the cache_dir/"
+    )
+
+try:
+    import ImageReward
+except ImportError:
+    print(
+        f"Imagereward not able to be imported, see https://github.com/THUDM/ImageReward/tree/main for install"
+    )
+...
+```
 
 # Directory Structure & Notes
 **Datasets:** The `eval_datasets/open_img_pref` folder contains the subset of 60 Open Image Preferences prompts we used.
