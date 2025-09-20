@@ -5,7 +5,6 @@ from transformers import CLIPImageProcessor
 from transformers.utils import TensorType
 from transformers.image_processing_base import BatchFeature
 
-
 ###
 ### Necessary for DNO to have gradients
 ### Adapted from commentary https://github.com/huggingface/transformers/issues/21064

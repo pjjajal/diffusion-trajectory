@@ -9,15 +9,15 @@ benchmark:
   till_reward: 0 # float > 0
   for_steps: 15 # int > 0
   wandb:
-    active: true
+    active: false
     project: "inference-diffusion-noise-optim"
   save_images:
-    active: false
-    save_dir: "./benchmark_runs"
+    active: true
+    save_dir: "generations/"
 
 dataset:
   name: "open_image_preferences_60" # [drawbench, custom, open_image_preferences]
-  cache_dir: "/scratch/gilbreth/pjajal/hf_datasets"
+  cache_dir: "/depot/yunglu/neliopou/hf_home"
   prompts:
     - "8-bit movie poster for Mad Max with older Mel Gibson and younger female companion, pixelated title text, vibrant retro colors, blocky characters, and a pixel-perfect wasteland backdrop, dynamic perspective, high resolution, sharp focus, dramatic chiaroscuro lighting, energetic atmosphere"
     # - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
