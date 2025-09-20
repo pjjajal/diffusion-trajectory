@@ -45,6 +45,7 @@ except ImportError:
 ## benchmark_hydra.py
 This is the main evaluation script for our method.
 Below is an example use of `benchmark_hydra.py` using the `configs/sd.yaml` configuration.
+Almost all configuraitons for your evaluations should be doneuin `configs/sd.yaml`, there is very little (if anything) you need to change in the main script, `benchmark_hydra.py`.
 
 ```bash
 > python benchmark_dno.py -cn sd
