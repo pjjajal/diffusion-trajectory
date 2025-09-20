@@ -51,11 +51,8 @@ Almost all configuraitons for your evaluations should be doneuin `configs/sd.yam
 > python benchmark_dno.py -cn sd
 ```
 
-## benchmark_dno.py
-> [!CAUTION] 
-> TODO
+## benchmark_dno.py [TODO]
+...
 
-## benchmark_dno_nograd.py
-> [!CAUTION] 
-> TODO
-
+## benchmark_dno_nograd.py [TODO]
+...
