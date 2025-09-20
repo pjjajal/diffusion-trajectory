@@ -11,7 +11,7 @@ Create a virtual environment (or not) and install dependencies via `requirements
 ```bash
 python -m pip install -r requirements.txt
 ```
-[!TIP] If using Aesthetic, HPSv2, or ImageReward, additional steps must be taken, which are detailed in `fitness/fitness_fn.py`
+> [!TIP] If using Aesthetic, HPSv2, or ImageReward, additional steps must be taken, which are detailed in `fitness/fitness_fn.py`
 
 # Directory Structure & Notes
 **Datasets:** The `eval_datasets/open_img_pref` folder contains the subset of 60 Open Image Preferences prompts we used.
@@ -31,8 +31,8 @@ Below is an example use of `benchmark_hydra.py` using the `configs/sd.yaml` conf
 ```
 
 ## benchmark_dno.py
-[!WARNING] TODO
+> [!WARNING] TODO
 
 ## benchmark_dno_nograd.py
-[!WARNING] TODO
+> [!WARNING] TODO
 
