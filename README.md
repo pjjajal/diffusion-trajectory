@@ -11,7 +11,7 @@ Create a virtual environment (or not) and install dependencies via `requirements
 ```bash
 python -m pip install -r requirements.txt
 ```
-[!NOTE] If using Aesthetic, HPSv2, or ImageReward, additional steps must be taken, which are detailed in `fitness/fitness_fn.py`
+[!WARN] If using Aesthetic, HPSv2, or ImageReward, additional steps must be taken, which are detailed in `fitness/fitness_fn.py`
 
 # Directory Structure & Notes
 **Datasets:** The `eval_datasets/open_img_pref` folder contains the subset of 60 Open Image Preferences prompts we used.
