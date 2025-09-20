@@ -9,22 +9,22 @@ benchmark:
   till_reward: 0 # float > 0
   for_steps: 15 # int > 0
   wandb:
-    active: false
-    project: "inference-diffusion-noise-optim"
+    active: false  # Set to your own wandb project, if you have one
+    project: "XXX" # Must be set if active
   save_images:
     active: true
     save_dir: "generations/"
 
 dataset:
-  name: "open_image_preferences_60" # [drawbench, custom, open_image_preferences]
-  cache_dir: "/depot/yunglu/neliopou/hf_home"
+  name: "open_image_preferences_60" # [drawbench, custom, open_image_preferences_60]
+  cache_dir: "XXX" # Should be set to your Huggingface home directory, HF_HOME
   prompts:
     - "8-bit movie poster for Mad Max with older Mel Gibson and younger female companion, pixelated title text, vibrant retro colors, blocky characters, and a pixel-perfect wasteland backdrop, dynamic perspective, high resolution, sharp focus, dramatic chiaroscuro lighting, energetic atmosphere"
     # - A bustling manga street, devoid of vehicles, detailed with vibrant colors and dynamic line work, characters in the background adding life and movement, under a soft golden hour light, with rich textures and a lively atmosphere, high resolution, sharp focus
     # - Alice in a vibrant, dreamlike digital painting inside the Nemo Nautilus submarine.
 
 pipeline:
-  type: "sd" # ["sdxl", "sd3", "lcm", "pixart-sigma", "pixart-alpha"]
+  type: "sd" # ["sd", "sdxl", "sd3", "lcm", "pixart-sigma", "pixart-alpha"] # Note that "sd" refers to SD1.5
   model_id: "stable-diffusion-v1-5/stable-diffusion-v1-5"
   height: 512
   width: 512
@@ -41,6 +41,8 @@ pipeline:
   quantize_cfg:
     bits: "4bit" # ["4bit", "8bit"]
 
+### This is the place wherefitness functions are selected
+### You can evaluate more than once at once. Set active=True, and the weight to include a fitness function
 fitness:
   objective: "max" # ["max", "min"]
   device: "cuda"
@@ -87,7 +89,7 @@ fitness:
     saturation:
       weight: 1.0
       active: false
-      
+    
 noise_injection:
   type: "noise" # ["rotational_transform", "svd_rot_transform", "noise"]
   add_noise: false

@@ -11,23 +11,19 @@ Diffusion models are state-of-the-art generative models in various domains, yet 
 python -m pip install ./
 ```
 
+# Directory Structure & Notes
+**Datasets:** The `eval_datasets/open_img_pref` folder contains the subset of 60 Open Image Preferences prompts we used.
+
+**Direct Noise Optimization (DNO):** We re-implemented DNO for evaluation with our method, specifically we modified the code such that our reward function implementations can be used with their approach, for "fair" evaluation and benchmarking.
+
 <!-- Usage Guide -->
 # Usage
 ## benchmark_hydra.py
-As its name implies, `offline_computation.py` identifies a number of tokens to prune *R* according to the offline computation from our work. Given a device and a pre-trained model, it measures the latency-workload relationship for this device-model pair. Then, we compute *R* using a heuristic based on this relationship. You can also control the granularity (and runtime) of the grid-search with (start,stop,stride) parameters.
+This is the main evaluation script for our method.
+Below is an example use of `benchmark_hydra.py` using the `configs/sd.yaml` configuration.
 
-> [!TIP]
-> It is also possible to separate the grid-search for latency and the grid-search for accuracy estimation. 
-> For example, you can estimate accuracy with a high batch size on a more powerful device, then measure latency on the target device for a particular batch size.
-
-Below is an example use of `offline_computation.py` for DeiT-S with batch-size=4:
 ```bash
 > sudo bash scripts/jetson_agxorin_set_clocks.sh
-> python offline_computation.py --model deit_small_patch16_224 --batch-size 4 --grid-token-start 196 --grid-token-stop 2 --grid-token-stride 1
-Loaded model deit_small_patch16_224
-...
-Computed R=56 given N=197 input tokens
-Done!
 ```
 
 ## benchmark_dno.py
