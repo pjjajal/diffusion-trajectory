@@ -26,6 +26,35 @@ import random
 
 warnings.filterwarnings("ignore")
 
+def measure_torch_device_memory_used_mb(device: torch.device) -> float:
+    """
+    Memory usage query - used in wandb logging.
+    """
+    if device.type == "cuda":
+        free, total = torch.cuda.mem_get_info(device)
+        return (total - free) / 1024**2
+    else:
+        return -1.0
+
+
+def wandb_log(
+	step, sample_latent_01, best_fitness, mean_fitness, median_fitness, prompt, running_time, device, loss
+):
+	prompt = prompt[0] if ( type(prompt) == list and len(prompt) == 1 ) else prompt
+	wandb.log(
+		{
+			"step": step,
+			"pop_best_eval": best_fitness,
+			"mean_eval": mean_fitness,
+			"median_eval": median_fitness,
+			"best_img": wandb.Image(imgs01_to_uint8_hwc(sample_latent_01)[0]),
+			"prompt": prompt,
+			"running_time": running_time,
+			"loss": loss,
+			"memory": measure_torch_device_memory_used_mb(device),
+		}
+	)
+
 ### This is used to save the config file to wandb
 def flatten_dict(d: DictConfig):
     out = {}
@@ -121,10 +150,7 @@ class SequentialDDIM:
 			self._samples = [self.noise_vectors[-1].detach()]
 
 def sequential_sampling(pipeline, unet, sampler, prompt_embeds, noise_vectors): 
-
-
 	sampler.initialize(noise_vectors)
-
 	model_time = 0
 	step = 0
 	while not sampler.is_finished():
@@ -139,6 +165,25 @@ def sequential_sampling(pipeline, unet, sampler, prompt_embeds, noise_vectors):
 		img = to_img(samp)
 
 	return sampler.get_last_sample()
+
+
+def decode_latent_to_float01(vae, latent):  # latent: (4,64,64) or (B,4,64,64)
+    if latent.dim() == 3:
+        latent = latent.unsqueeze(0)
+    imgs = vae.decode(latent / 0.18215).sample           # [-1,1], BCHW
+    imgs = (imgs.clamp(-1, 1) + 1) / 2                   # [0,1], BCHW float
+    return imgs
+
+
+def float01_to_pil(imgs01):                               # imgs01: [0,1] BCHW
+    return pt_to_pil(imgs01)                              # list of PIL
+
+def imgs01_to_uint8_hwc(imgs01_bchw: torch.Tensor) -> np.ndarray:
+    x = imgs01_bchw.detach().to(torch.float32, copy=False).clamp(0,1)
+    x = (x * 255.0).round().to(torch.uint8)                # BCHW uint8 [0,255]
+    x = x.permute(0, 2, 3, 1).cpu().numpy()                # BHWC
+    return x
+
 
 def decode_latent(decoder, latent):
 	img = decoder.decode(latent.unsqueeze(0) / 0.18215).sample
@@ -258,6 +303,8 @@ if __name__ == "__main__":
 	torch.manual_seed(args.seed)
 	random.seed(args.seed)
 
+	device = torch.device(args.device)
+
 	# load model
 	model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 	pipeline = DiffusionPipeline.from_pretrained(
@@ -275,7 +322,7 @@ if __name__ == "__main__":
 	unet = pipeline.unet
 
 	### Load eval dataset
-	dataset_config = DictConfig({"name": "drawbench", "cache_dir": args.cache_dir})
+	# dataset_config = DictConfig({"name": "drawbench", "cache_dir": args.cache_dir})
 	dataset_config = DictConfig({"name": "open_image_preferences_60", "cache_dir": args.cache_dir})
 	dataset = eval_datasets.create_dataset(dataset_config)
 	dataset_iterator = dataset.iter(batch_size=1)
@@ -357,6 +404,63 @@ if __name__ == "__main__":
 
 		print(f"Optimizing for prompt: {prompt}")
 
+		# Initial sample with current noise (no gradients)
+		with torch.no_grad():
+			init_sampler = SequentialDDIM(
+				timesteps=args.num_steps,
+				scheduler=pipeline.scheduler,
+				eta=args.eta,
+				cfg_scale=args.guidance_scale,
+				device=args.device,
+				opt_timesteps=args.opt_time
+			)
+			init_latent = sequential_sampling(
+				pipeline,
+				unet,
+				init_sampler,
+				prompt_embeds=prompt_embeds,
+				noise_vectors=noise_vectors
+			)
+
+			imgs01 = decode_latent_to_float01(pipeline.vae, init_latent)  # [0,1], BCHW
+			# pils = imgs01_to_uint8_hwc(imgs01)
+
+			print(f"Init Latent Shape: {init_latent.shape}")
+			print(f"Init Image Shape: {imgs01.shape}")
+			
+			# Print global and per-channel statistics of the decoded initial image tensor in [0,1]
+			global_mean = imgs01.mean().item()
+			global_std = imgs01.std().item()
+			channel_mean = imgs01.mean(dim=[0, 2, 3]).tolist()
+			channel_std = imgs01.std(dim=[0, 2, 3]).tolist()
+			print(f"imgs01 -> mean: {global_mean:.6f}, std: {global_std:.6f}")
+			print(f"imgs01 per-channel mean: {channel_mean}")
+			print(f"imgs01 per-channel std: {channel_std}")
+
+			loss = loss_function(imgs01)
+			reward = -loss.item()
+
+			# wandb.log({
+			# 	"Step": 0,
+			# 	"Loss": loss.item(),
+			# 	"Reward": reward,
+			# 	"Image": wandb.Image(pils[0]),
+			# 	"Prompt": prompt,
+			# 	"Running Time": 0,
+			# })
+
+			wandb_log(
+				step=0,
+				sample_latent_01=imgs01,
+				best_fitness=reward,
+				mean_fitness=reward,
+				median_fitness=reward,
+				prompt=prompt,
+				running_time=0,
+				device=device,
+				loss=loss.item()
+			)
+
 		###
 		### Optimization loop
 		###
@@ -376,9 +480,10 @@ if __name__ == "__main__":
 				)
 				
 				sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
-				sample = decode_latent(pipeline.vae, sample)
-				
-				loss = loss_function(sample)
+				# sample = decode_latent(pipeline.vae, sample)
+				imgs01 = decode_latent_to_float01(pipeline.vae, sample)
+
+				loss = loss_function(imgs01)
 				reward = -loss.item()
 				
 				if args.gamma > 0:
@@ -395,14 +500,27 @@ if __name__ == "__main__":
 
 				print(f"Step {t+1}/{args.opt_steps}, Loss: {loss.item():.4f}, Reward: {reward:.4f}")
 				running_time += time.time() - start_time
-				wandb.log({
-					"Step": t,
-					"Loss": loss.item(),
-					"Reward": reward,
-					"Image": wandb.Image(sample),
-					"Prompt": prompt,
-					"Running Time": running_time,
-				})
+
+				# wandb.log({
+				# 	"Step": t+1,
+				# 	"Loss": loss.item(),
+				# 	"Reward": reward,
+				# 	"Image": wandb.Image(imgs01_to_uint8_hwc(imgs01)[0]),
+				# 	"Prompt": prompt,
+				# 	"Running Time": running_time,
+				# })
+
+				wandb_log(
+					step=t+1,
+					sample_latent_01=imgs01,
+					best_fitness=reward,
+					mean_fitness=reward,
+					median_fitness=reward,
+					prompt=prompt,
+					running_time=running_time,
+					device=device,
+					loss=loss.item()
+				)
 
 		###
 		### Log the final sample
@@ -417,18 +535,28 @@ if __name__ == "__main__":
 		)
 		
 		sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
-		sample = decode_latent(pipeline.vae, sample)
+		imgs01 = decode_latent_to_float01(pipeline.vae, sample)
 		
-		loss = loss_function(sample)
+		loss = loss_function(imgs01)
 		reward = -loss.item()
-		wandb.log({
-			"Step": args.opt_steps,
-			"Loss": loss.item(),
-			"Reward": reward,
-			"Image": wandb.Image(sample),
-			"Prompt": prompt,
-			"Running Time": running_time,
-		})
 
+		# wandb.log({
+		# 	"Step": 1+args.opt_steps,
+		# 	"Loss": loss.item(),
+		# 	"Reward": reward,
+		# 	"Image": wandb.Image(sample[0]),
+		# 	"Prompt": prompt,
+		# 	"Running Time": running_time,
+		# })
 		
-		
+		wandb_log(
+			step=1+args.opt_steps,
+			sample_latent_01=imgs01,
+			best_fitness=reward,
+			mean_fitness=reward,
+			median_fitness=reward,
+			prompt=prompt,
+			running_time=running_time,
+			device=device,
+			loss=loss.item()
+		)
