@@ -7,6 +7,8 @@ from transformers.image_processing_base import BatchFeature
 from transformers.utils import TensorType
 from torchvision.transforms.functional import center_crop, normalize, resize
 import io
+import numpy
+from diffusers.utils import numpy_to_pil, pt_to_pil
 
 ###
 ### Necessary for DNO to have gradients
@@ -302,17 +304,48 @@ def clip_score(inference_dtype=None, device=None):
 	return loss_fn
 
 
-def jpeg_compressibility(inference_dtype=None, device=None):
-	def loss_fn(im_pix_un, prompts = None, **kwargs):
-		images = ((im_pix_un / 2) + 0.5).clamp(0, 1)
-		if isinstance(images, torch.Tensor):
-			images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
-			images = images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
-		images = [Image.fromarray(image) for image in images]
-		buffers = [io.BytesIO() for _ in images]
-		for image, buffer in zip(images, buffers):
-			image.save(buffer, format="JPEG", quality=95)
-		sizes = [buffer.tell() / 1000 for buffer in buffers]
-		return torch.tensor(sizes, dtype=inference_dtype, device=device)
+# def jpeg_compressibility(inference_dtype=None, device=None):
+# 	def loss_fn(im_pix_un, prompts = None, **kwargs):
+# 		images = ((im_pix_un / 2) + 0.5).clamp(0, 1)
+# 		if isinstance(images, torch.Tensor):
+# 			images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
+# 			images = images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
+# 		images = [Image.fromarray(image) for image in images]
+# 		buffers = [io.BytesIO() for _ in images]
+# 		for image, buffer in zip(images, buffers):
+# 			image.save(buffer, format="JPEG", quality=95)
+# 		sizes = [buffer.tell() / 1000 for buffer in buffers]
+# 		return torch.tensor(sizes, dtype=inference_dtype, device=device)
 
-	return loss_fn
+# 	return loss_fn
+
+def handle_image_tensor_input_types(img: torch.Tensor | numpy.ndarray, skip: bool = False):
+    if skip:
+        return img
+    if isinstance(img, torch.Tensor):
+        pil_imgs = pt_to_pil(img.detach())
+    elif isinstance(img, numpy.ndarray):
+        pil_imgs = numpy_to_pil(img)
+    else:
+        pil_imgs = img
+    return pil_imgs
+
+
+def jpeg_compressibility(
+    inference_dtype=None, device=None,
+):
+    """
+    Computes the JPEG compressibility of an image by saving it to a buffer and measuring the size.
+    """
+    def fitness_fn(img: torch.Tensor | numpy.ndarray, prompts: str = None, **kwargs) -> torch.Tensor:
+        pil_imgs = handle_image_tensor_input_types(img)
+        pil_imgs = [pil_imgs] if not isinstance(pil_imgs, list) else pil_imgs
+        sizes = []
+        for pil_img in pil_imgs:
+            buffer = io.BytesIO()
+            pil_img.save(buffer, format="JPEG", quality=95)
+            size = buffer.tell() / 1000  # size in KB
+            buffer.close()
+            sizes.append(size)
+        return torch.tensor(sizes, dtype=inference_dtype, device=device).unsqueeze(0)
+    return fitness_fn
