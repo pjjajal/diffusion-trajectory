@@ -389,6 +389,9 @@ def main():
 
 	# AMP gradient scaler
 	# scaler = GradScaler(enabled=use_amp, init_scale=8192)
+	use_amp = False if args.precision == "fp32" else True
+	grad_scaler = GradScaler("cuda", enabled=use_amp, init_scale = 8192)
+	amp_dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
 
 	# Loop over prompts
 	for data in iterator:
@@ -414,7 +417,7 @@ def main():
 
 		# Select fitness / reward function
 		fitness = jpeg_compressibility(
-			device=device, inference_dtype=torch.float32
+			device=device, inference_dtype=loss_dtype
 		)
 
 		# Define vector and scalar loss functions
@@ -540,13 +543,21 @@ def main():
 			
 			est_grad = est_grad.mean(dim=0)
 			est_grad /= (torch.norm(est_grad) + 1e-3)
-			est_grad = est_grad.to(device=device)
+			est_grad = est_grad.to(device=device, dtype=loss_dtype)
 
-			# 5) Update noise_vectors by gradient descent
 			loss = torch.sum(est_grad * sample)
 			loss.backward()
 			torch.nn.utils.clip_grad_norm_([noise_vectors], 1.0)
 			optimizer.step()
+
+			# with autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+			# 	# 5) Update noise_vectors by gradient descent
+			# 	loss = torch.sum(est_grad * sample)
+			# 	grad_scaler.scale(loss).backward()
+			# 	grad_scaler.unscale_(optimizer)
+			# 	torch.nn.utils.clip_grad_norm_([noise_vectors], 1.0)
+			# 	grad_scaler.step(optimizer)
+			# 	grad_scaler.update()
 
 			# 6) Save and log results
 			print(f"Step {step+1}/{args.opt_steps}, Reward={reward:.4f}")
