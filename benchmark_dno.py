@@ -24,6 +24,7 @@ import wandb
 from omegaconf import DictConfig
 import random
 
+
 warnings.filterwarnings("ignore")
 
 def measure_torch_device_memory_used_mb(device: torch.device) -> float:
@@ -152,17 +153,12 @@ class SequentialDDIM:
 def sequential_sampling(pipeline, unet, sampler, prompt_embeds, noise_vectors): 
 	sampler.initialize(noise_vectors)
 	model_time = 0
-	step = 0
+	
 	while not sampler.is_finished():
-		step += 1
 		model_kwargs = sampler.prepare_model_kwargs(prompt_embeds = prompt_embeds)
 		#model_output = pipeline.unet(**model_kwargs)
 		model_output = checkpoint.checkpoint(unet, model_kwargs["sample"], model_kwargs["timestep"], model_kwargs["encoder_hidden_states"],  use_reentrant=False)
 		sampler.step(model_output) 
-		
-		samp = sampler.get_last_sample().detach()
-		samp = sample = decode_latent(pipeline.vae, samp)
-		img = to_img(samp)
 
 	return sampler.get_last_sample()
 
@@ -184,15 +180,9 @@ def imgs01_to_uint8_hwc(imgs01_bchw: torch.Tensor) -> np.ndarray:
     x = x.permute(0, 2, 3, 1).cpu().numpy()                # BHWC
     return x
 
-
 def decode_latent(decoder, latent):
 	img = decoder.decode(latent.unsqueeze(0) / 0.18215).sample
 	return img
-
-def to_img(img):
-	img = torch.clamp(127.5 * img.cpu().float() + 128.0, 0, 255).permute(0, 2, 3, 1).to(dtype=torch.uint8).numpy()
-
-	return img[0]
 
 def compute_probability_regularization(noise_vectors, eta, opt_time, subsample, shuffled_times = 100):
 	
@@ -556,7 +546,7 @@ if __name__ == "__main__":
 			mean_fitness=reward,
 			median_fitness=reward,
 			prompt=prompt,
-			running_time=running_time,
+			running_time= + time.time() - start_time,
 			device=device,
 			loss=loss.item()
 		)

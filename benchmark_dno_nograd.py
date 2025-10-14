@@ -13,6 +13,7 @@ from fitness import (
 	hpsv2_gradient_flow_fitness_fn, 
 	clip_gradient_flow_fitness_fn
 )
+import time
 import numpy as np
 import warnings
 from eval_datasets import create_dataset
@@ -337,7 +338,7 @@ def parse_args() -> argparse.Namespace:
 						help='directory to save results')
 	return parser.parse_args()
 
-def main():
+if __name__ == '__main__':
 	# Parse arguments
 	args = parse_args()
 
@@ -473,7 +474,9 @@ def main():
 			)
 
 		# Optimization loop
+		running_time = 0
 		for step in range(args.opt_steps):
+			start_time = time.time()
 			optimizer.zero_grad()
 			# 1) Generate current sample via sequential DDIM
 			sampler = SequentialDDIM(
@@ -560,21 +563,48 @@ def main():
 			# 	grad_scaler.update()
 
 			# 6) Save and log results
-			print(f"Step {step+1}/{args.opt_steps}, Reward={reward:.4f}")
+			# print(f"Step {step+1}/{args.opt_steps}, Reward={reward:.4f}")
+
+			running_time += time.time() - start_time
 
 			wandb_log(
-				step=0,
+				step=step+1,
 				sample_latent_01=sample,
 				best_fitness=reward,
 				mean_fitness=reward,
 				median_fitness=reward,
 				prompt=prompt,
-				running_time=0,
+				running_time=running_time,
 				device=device,
 				loss=loss.item()
 			)
 
-	wandb.finish()
-
-if __name__ == '__main__':
-	main()
+		###
+		### Log the final sample
+		###
+		ddim_sampler = SequentialDDIM(
+			timesteps = args.num_steps,
+			scheduler = pipeline.scheduler, 
+			eta = args.eta, 
+			cfg_scale = args.guidance_scale, 
+			device = args.device,
+			opt_timesteps = args.opt_time
+		)
+		
+		sample = sequential_sampling(pipeline, unet, ddim_sampler, prompt_embeds = prompt_embeds, noise_vectors = noise_vectors)
+		imgs01 = decode_latent_to_float01(pipeline.vae, sample)
+		
+		loss = scalar_loss_fn(imgs01)
+		reward = -loss.item()
+		
+		wandb_log(
+			step=1+args.opt_steps,
+			sample_latent_01=imgs01,
+			best_fitness=reward,
+			mean_fitness=reward,
+			median_fitness=reward,
+			prompt=prompt,
+			running_time=running_time + time.time() - start_time,
+			device=device,
+			loss=loss.item()
+		)
