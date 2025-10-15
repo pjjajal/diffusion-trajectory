@@ -384,6 +384,7 @@ if __name__ == '__main__':
 	unet = pipeline.unet
 
 	# Prepare dataset
+	# dataset_config = DictConfig({"name": "drawbench", "cache_dir": args.cache_dir})
 	dataset_config = DictConfig({"name": "open_image_preferences_60", "cache_dir": args.cache_dir})
 	dataset = create_dataset(dataset_config)
 	iterator = dataset.iter(batch_size=1)
@@ -417,12 +418,16 @@ if __name__ == '__main__':
 		).to(dtype=inference_dtype)
 
 		# Select fitness / reward function
+		loss_weight = 1.0
+		if args.fitness_fn == "jpeg":
+			loss_weight = -1.0
+
 		fitness = jpeg_compressibility(
 			device=device, inference_dtype=loss_dtype
 		)
 
 		# Define vector and scalar loss functions
-		vector_loss_fn = lambda imgs: -1.0 * fitness(imgs) # per-sample loss
+		vector_loss_fn = lambda imgs: -1.0 * loss_weight * fitness(imgs) # per-sample loss
 		scalar_loss_fn = lambda imgs: torch.mean(vector_loss_fn(imgs)) # average over batch
 
 		# Initial sample with current noise (no gradients)
