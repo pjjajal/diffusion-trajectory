@@ -306,7 +306,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument('--cache-dir', type=str, default=None,
 						help='cache directory for pretrained models')
 	parser.add_argument('--fitness-fn', type=str, default='jpeg',
-						choices=['jpeg'],
+						choices=['jpeg', 'imagereward'],
 						help='which reward/fitness function to use')
 	parser.add_argument('--num-steps', type=int, default=50,
 						help='number of DDIM sampling steps')
@@ -422,9 +422,14 @@ if __name__ == '__main__':
 		if args.fitness_fn == "jpeg":
 			loss_weight = -1.0
 
-		fitness = jpeg_compressibility(
-			device=device, inference_dtype=loss_dtype
-		)
+			fitness = jpeg_compressibility(
+				device=device, inference_dtype=loss_dtype
+			)
+		
+		if args.fitness_fn == "imagereward":
+			fitness = imagereward_gradient_flow_fitness_fn(
+				prompt=prompt,device=device, dtype=loss_dtype
+			)
 
 		# Define vector and scalar loss functions
 		vector_loss_fn = lambda imgs: -1.0 * loss_weight * fitness(imgs) # per-sample loss
