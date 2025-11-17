@@ -546,7 +546,7 @@ if __name__ == "__main__":
 			mean_fitness=reward,
 			median_fitness=reward,
 			prompt=prompt,
-			running_time= + time.time() - start_time,
+			running_time=running_time + time.time() - start_time,
 			device=device,
 			loss=loss.item()
 		)
