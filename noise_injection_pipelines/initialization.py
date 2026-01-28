@@ -11,3 +11,8 @@ def randn_intialization(values, mean=0, stdev=1, initial=None):
     values.normal_(mean, stdev)
     if initial is not None:
         values[0] = initial
+
+def uniform_initialization_with_randn_perturb(values, mean=0, stdev=1, initial=None):
+    assert initial is not None
+    values.copy_(initial)
+    # values = values + (torch.randn(values.shape, device=values.device, dtype=values.dtype) + mean) * stdev

@@ -67,7 +67,7 @@ from noise_injection_pipelines import (
     multi_axis_rotational_transform,
     multi_axis_svd_rot_transform,
 )
-from noise_injection_pipelines.initialization import randn_intialization
+from noise_injection_pipelines.initialization import randn_intialization, uniform_initialization_with_randn_perturb
 
 
 warnings.filterwarnings("ignore")
@@ -674,6 +674,10 @@ def main(cfg: DictConfig):
     else:
         data_iter = dataset
 
+    if cfg.solver.algorithm == "cosyne" and cfg.noise_injection.type == "noise":
+        uniform_init = not ( cfg.solver.initialization.std == 1.0 and cfg.solver.initialization.mean == 0.0 )
+        print(f"Use uniform initialization? {uniform_init}")
+
     for x in data_iter:
         sample_fn.regenerate_latents()
         sample_fn.rembed_text(x["prompt"])
@@ -691,7 +695,7 @@ def main(cfg: DictConfig):
             device=pipeline.device,
             initial_bounds=cfg.solver.initial_bounds,
             initialization=partial(
-                randn_intialization,
+                randn_intialization if cfg.solver.initialization.std == 1.0 and cfg.solver.initialization.mean == 0.0 else uniform_initialization_with_randn_perturb,
                 mean=cfg.solver.initialization.mean,
                 stdev=cfg.solver.initialization.std,
                 initial=(
